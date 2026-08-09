@@ -3,15 +3,13 @@ import { hashFile } from '../sha256.js';
 import { uploadChunks } from '../chunker.js';
 import { createReqFields } from '../reqfields.js';
 import { confirmDialog, h, toast } from '../ui.js';
-import { state } from '../app.js';
+import { state, currentRenderSeq } from '../app.js';
 
 let syncSession = null;
 let syncBarHost = null;
-let syncPanel = null;
 
 function endSync() {
   syncSession = null;
-  syncPanel = null;
   if (syncBarHost) renderSyncBar(syncBarHost);
 }
 
@@ -75,10 +73,12 @@ export function renderSyncBar(host) {
 
 export async function renderGame(el) {
   const id = location.hash.split('/')[2];
+  const seq = currentRenderSeq();
   const box = h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [h('span', { class: 'spinner' }), h('span', { text: 'loading…' })]);
   el.replaceChildren(box);
 
   const { game, comments, overlay } = await api.games.get(id);
+  if (currentRenderSeq() !== seq) return;
   const canManage = state.user.role === 'admin' || game.uploaded_by === state.user.id;
 
   if (game.status === 'processing') {
@@ -88,7 +88,7 @@ export async function renderGame(el) {
 
   el.replaceChildren(
     h('a', { class: 'btn btn-sm btn-ghost', href: '#/', text: '← library' }),
-    h('div', { class: 'game-header', style: 'margin-top:14px;' }, [
+    h('div', { class: 'game-header', style: 'margin-top:18px;' }, [
       game.cover
         ? h('div', { class: 'game-cover-lg' }, [h('img', { src: game.cover, alt: game.name })])
         : h('div', { class: 'game-cover-lg' }, [h('span', { text: '▢' })]),
@@ -102,7 +102,7 @@ export async function renderGame(el) {
         ]),
         h('dl', { class: 'stat-row' }, [
           h('dt', { text: 'size' }), h('dd', { text: humanSize(game.total_size) }),
-          h('dt', { text: 'uploaded by' }), h('dd', {}, [
+          h('dt', { text: 'uploaded by' }), h('dd', { class: 'dd-uploader' }, [
             game.uploader_pfp ? h('img', { class: 'uploader-pfp', src: pfpUrl(game.uploader_pfp), alt: '' }) : null,
             h('span', { text: `@${game.uploader_name || 'system'}` })
           ]),
@@ -195,6 +195,10 @@ function renderProcessing(el, game) {
   );
 
   const poll = async () => {
+    if (!location.hash.startsWith(`#/game/${game.id}`)) {
+      clearInterval(timer);
+      return;
+    }
     try {
       const st = await api.games.status(game.id);
       if (st.status === 'ready') {
@@ -324,10 +328,24 @@ function renderComments(el, game, comments) {
   const sec = h('div', { class: 'section-title' }, ['comments']);
   el.append(sec);
 
-  const input = h('input', { type: 'text', placeholder: 'write a comment…' });
-  const submit = h('button', { class: 'btn btn-sm', text: 'post' });
-  const form = h('div', { class: 'flex', style: 'margin-bottom:12px;' }, [input, submit]);
-  el.append(h('div', { class: 'panel' }, [form]));
+  const input = h('textarea', { rows: 1, placeholder: 'write a comment…' });
+  const submit = h('button', { class: 'btn btn-primary btn-sm', text: 'post', disabled: true });
+  const hint = h('span', { class: 'composer-hint', text: 'enter to post · @ to mention' });
+  const composerBody = h('div', { class: 'composer-body' }, [
+    h('div', { class: 'composer-input-wrap' }, [input]),
+    h('div', { class: 'composer-footer' }, [hint, submit]),
+  ]);
+  const avatar = state.user.pfp
+    ? h('img', { class: 'composer-avatar', src: state.user.pfp, alt: '' })
+    : h('span', { class: 'composer-avatar composer-avatar-empty' });
+  el.append(h('div', { class: 'panel' }, [h('div', { class: 'composer' }, [avatar, composerBody])]));
+
+  const grow = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+    submit.disabled = !input.value.trim();
+  };
+  input.addEventListener('input', grow);
 
   const list = h('div', { class: 'panel', style: 'padding-top:4px;' });
   el.append(list);
@@ -378,8 +396,8 @@ function renderComments(el, game, comments) {
 
   function replyBox(parentId) {
     const rinput = h('input', { type: 'text', placeholder: 'reply…' });
-    const rsubmit = h('button', { class: 'btn btn-sm', text: 'post' });
-    const rbox = h('div', { class: 'flex reply-form', style: 'margin-top:8px;' }, [rinput, rsubmit]);
+    const rsubmit = h('button', { class: 'btn btn-primary btn-sm', text: 'post' });
+    const rbox = h('div', { class: 'reply-form' }, [h('div', { class: 'reply-input-wrap' }, [rinput]), rsubmit]);
     attachMentionPicker(rinput);
     rsubmit.onclick = async () => {
       if (!rinput.value.trim()) return;
@@ -440,6 +458,8 @@ function renderComments(el, game, comments) {
       const { comment } = await api.comments.create(game.id, input.value);
       data.push(comment);
       input.value = '';
+      input.style.height = '';
+      submit.disabled = true;
       refresh();
       reload();
     } catch (e) {
@@ -447,7 +467,10 @@ function renderComments(el, game, comments) {
     }
   };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') submit.click();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit.click();
+    }
   });
 
   refresh();
@@ -457,7 +480,44 @@ function renderEdit(el, game) {
   const name = h('div', { class: 'field' }, [h('label', { text: 'name' }), h('input', { type: 'text', value: game.name })]);
   const desc = h('div', { class: 'field' }, [h('label', { text: 'description (optional)' }), h('textarea', {}, game.description || '')]);
   const reqs = createReqFields(game.system_requirements || '');
-  const cover = h('div', { class: 'field' }, [h('label', { text: 'cover image (optional, jpg/png)' }), h('input', { type: 'file', accept: 'image/jpeg,image/png' })]);
+  const cover = h('div', { class: 'field' }, [
+    h('label', { text: 'cover image (optional, jpg/png)' }),
+    h('div', { class: 'cover-picker' }, [
+      h('img', { class: 'cover-preview', alt: '', hidden: true }),
+      h('input', { type: 'file', accept: 'image/jpeg,image/png', style: 'display:none' }),
+      h('button', { class: 'btn btn-ghost btn-sm', text: 'choose image' }),
+      h('span', { class: 'muted small', text: 'or drop the artwork here' }),
+    ]),
+  ]);
+  const coverInput = cover.querySelector('input');
+  const coverImg = cover.querySelector('img');
+  const coverPicker = cover.querySelector('.cover-picker');
+  coverPicker.querySelector('button').addEventListener('click', () => coverInput.click());
+  coverInput.addEventListener('change', () => {
+    const f = coverInput.files[0];
+    if (f) {
+      const url = URL.createObjectURL(f);
+      coverImg.onload = () => URL.revokeObjectURL(url);
+      coverImg.src = url;
+      coverImg.hidden = false;
+    }
+  });
+  coverPicker.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    coverPicker.classList.add('drag-over');
+  });
+  coverPicker.addEventListener('dragleave', () => coverPicker.classList.remove('drag-over'));
+  coverPicker.addEventListener('drop', (e) => {
+    e.preventDefault();
+    coverPicker.classList.remove('drag-over');
+    const f = [...(e.dataTransfer?.files || [])].find((f) => /^image\/(jpeg|png)$/.test(f.type));
+    if (f) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      coverInput.files = dt.files;
+      coverInput.dispatchEvent(new Event('change'));
+    }
+  });
   const save = h('button', { class: 'btn btn-primary', text: 'save' });
   const err = h('div', { class: 'form-error' });
   const panel = h('div', { class: 'panel' }, [
@@ -515,7 +575,10 @@ async function startSync(el, game, overlay) {
   picker.onchange = () => {
     const files = [...picker.files];
     picker.remove();
-    runSync(el, game, files);
+    runSync(el, game, files).catch((e) => {
+      endSync();
+      toast(e.message || 'sync failed', 'error');
+    });
   };
   picker.click();
 }
@@ -534,7 +597,6 @@ async function runSync(el, game, files) {
     barWrap,
   );
   el.querySelector('.game-header').after(statusEl);
-  syncPanel = { p1, p2, bar };
 
   const controller = new AbortController();
   syncSession = {
@@ -653,9 +715,10 @@ async function runSync(el, game, files) {
         endSync();
         return;
       }
+      endSync();
       if (e.code === 'RESUME_REQUIRED') {
         toast('upload state changed mid-sync; retry', 'warn');
-        await api.games.overlayInit(game.id);
+        return;
       }
       throw e;
     }

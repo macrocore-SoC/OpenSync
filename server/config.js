@@ -5,7 +5,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const ROOT = path.resolve(__dirname, '..');
 export const CLIENT_DIR = path.join(ROOT, 'client');
-export const SHARED_DIR = path.join(ROOT, 'shared');
 
 export const PORT = Number(process.env.PORT || 3000);
 export const HOST = process.env.HOST || '0.0.0.0';
@@ -24,3 +23,7 @@ export const COOKIE_NAME = 'ohs';
 
 export const GAME_STATUS = { PROCESSING: 'processing', READY: 'ready' };
 export const ROLES = { ADMIN: 'admin', USER: 'user' };
+
+// Avatar shown for accounts that never set a profile picture
+// (served from client/img/blankpfp.jpg by express.static).
+export const DEFAULT_PFP_URL = '/img/blankpfp.jpg';

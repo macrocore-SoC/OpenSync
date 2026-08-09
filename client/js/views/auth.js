@@ -35,6 +35,7 @@ export async function renderAuth(el) {
     const body = form.querySelector('#auth-body');
     const err = form.querySelector('#auth-error');
     err.textContent = '';
+    const prevH = body.offsetHeight;
     const username = h('div', { class: 'field' }, [
       h('label', { text: 'username' }),
       h('input', { type: 'text', name: 'username', autocomplete: 'username' }),
@@ -44,9 +45,36 @@ export async function renderAuth(el) {
       h('input', { type: 'password', name: 'password', autocomplete: mode === 'login' ? 'current-password' : 'new-password' }),
     ]);
     const pfp = h('div', { class: 'field' }, [
-      h('label', { text: 'profile picture (required, jpg/png)' }),
-      h('input', { type: 'file', name: 'pfp', accept: 'image/jpeg,image/png' }),
+      h('label', { text: 'profile picture (optional, jpg/png)' }),
+      h('div', { class: 'pfp-picker' }, [
+        h('img', { class: 'pfp-lg pfp-preview', src: '/img/blankpfp.jpg', alt: '' }),
+        h('p', { class: 'muted small', text: 'drag & drop an image here' }),
+      ]),
     ]);
+    let pfpFile = null;
+    const pfpPicker = pfp.querySelector('.pfp-picker');
+    const pfpImg = pfp.querySelector('img');
+    function setPfpFile(file) {
+      pfpFile = file || null;
+      if (file) {
+        const url = URL.createObjectURL(file);
+        pfpImg.src = url;
+        pfpImg.onload = () => URL.revokeObjectURL(url);
+      } else {
+        pfpImg.src = '/img/blankpfp.jpg';
+      }
+    }
+    pfpPicker.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      pfpPicker.classList.add('drag-over');
+    });
+    pfpPicker.addEventListener('dragleave', () => pfpPicker.classList.remove('drag-over'));
+    pfpPicker.addEventListener('drop', (e) => {
+      e.preventDefault();
+      pfpPicker.classList.remove('drag-over');
+      const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/'));
+      if (file) setPfpFile(file);
+    });
     const submit = h('button', { class: 'btn btn-primary', text: mode === 'login' ? 'enter' : 'create account' });
     const hints = [];
     if (mode === 'register' && !(await getInfo()).has_admin) {
@@ -56,6 +84,13 @@ export async function renderAuth(el) {
       hints.push(h('p', { class: 'faint small' }, 'no account yet? switch to register.'));
     }
     body.replaceChildren(username, password, ...(mode === 'register' ? [pfp] : []), submit, ...hints);
+    const targetH = body.scrollHeight;
+    if (prevH > 0 && targetH !== prevH) {
+      body.style.height = `${prevH}px`;
+      void body.offsetHeight;
+      body.style.height = `${targetH}px`;
+      body.addEventListener('transitionend', () => { body.style.height = ''; }, { once: true });
+    }
     if (mode === 'login') password.querySelector('input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit.click(); });
 
     submit.onclick = async () => {
@@ -67,16 +102,17 @@ export async function renderAuth(el) {
         const p = password.querySelector('input').value;
         let pfpDataUrl = null;
         if (mode === 'register') {
-          const file = pfp.querySelector('input').files[0];
-          if (!file) throw new Error('a profile picture is required');
-          if (!/^image\/(jpeg|png)$/.test(file.type)) throw new Error('profile picture must be jpeg or png');
-          if (file.size > 8 * 1024 * 1024) throw new Error('profile picture too large (max 8 MB)');
-          pfpDataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error('could not read profile picture'));
-            reader.readAsDataURL(file);
-          });
+          const file = pfpFile;
+          if (file) {
+            if (!/^image\/(jpeg|png)$/.test(file.type)) throw new Error('profile picture must be jpeg or png');
+            if (file.size > 8 * 1024 * 1024) throw new Error('profile picture too large (max 8 MB)');
+            pfpDataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error('could not read profile picture'));
+              reader.readAsDataURL(file);
+            });
+          }
         }
         const { user } = mode === 'login'
           ? await api.auth.login(u, p)

@@ -40,6 +40,7 @@ export const api = {
     logout: () => api.post('/api/auth/logout', {}),
     me: () => api.get('/api/auth/me'),
     uploadPfp: (body) => request('PUT', '/api/auth/me/pfp', { body, headers: { 'content-type': body.type } }),
+    removePfp: () => request('DELETE', '/api/auth/me/pfp'),
     deleteAccount: () => api.del('/api/auth/me'),
   },
   games: {
@@ -53,7 +54,6 @@ export const api = {
     uploadInit: (id) => api.post(`/api/games/${id}/upload/init`, {}),
     uploadComplete: (id) => api.post(`/api/games/${id}/upload/complete`, {}),
     overlayInit: (id) => api.get(`/api/games/${id}/overlay/init`),
-    overlay: (id) => api.get(`/api/games/${id}/overlay`),
     syncComplete: (id, deletions, force = false) => api.post(`/api/games/${id}/sync/complete`, { deletions, force }),
     clearOverlay: (id) => api.del(`/api/games/${id}/overlay`),
     cover: (id, body) => api.raw(`/api/games/${id}/cover`, { body, headers: { 'content-type': body.type } }),
@@ -108,7 +108,8 @@ export function fmtDateTime(iso) {
 
 export function pfpUrl(pfp) {
   if (!pfp) return '';
-  // backend returns /api/auth/users/{id}/pfp; handle any path starting with /api/
-  if (pfp.startsWith('/api/')) return pfp;
+  // backend returns /api/auth/users/{id}/pfp or an absolute asset path
+  // like /img/blankpfp.jpg (the default avatar) — pass those through
+  if (pfp.startsWith('/')) return pfp;
   return `/api/auth/users/${pfp}/pfp`;
 }

@@ -23,7 +23,7 @@ test('profile: /me stats start at zero and pfp is set from registration', async 
   adminCookie = admin.cookie;
   adminId = admin.user.id;
   const { user } = await (await fetch(`${srv.base}/api/auth/me`, { headers: headers(adminCookie) })).json();
-  assert.equal(user.pfp, '/api/auth/me/pfp');
+  assert.equal(user.pfp, `/api/auth/users/${adminId}/pfp`);
   assert.deepEqual(user.stats, { uploaded: 0, downloaded: 0, synced: 0 });
 });
 
@@ -63,10 +63,10 @@ test('profile: pfp upload and retrieval', async () => {
   assert.equal(posted.status, 200);
   const body = await posted.json();
   assert.equal(body.ok, true);
-  assert.equal(body.pfp, '/api/auth/me/pfp');
+  assert.equal(body.pfp, `/api/auth/users/${adminId}/pfp`);
 
   const { user } = await (await fetch(`${srv.base}/api/auth/me`, { headers: headers(adminCookie) })).json();
-  assert.equal(user.pfp, '/api/auth/me/pfp');
+  assert.equal(user.pfp, `/api/auth/users/${adminId}/pfp`);
 
   const img = await fetch(`${srv.base}/api/auth/me/pfp`, { headers: headers(adminCookie) });
   assert.equal(img.status, 200);
@@ -79,6 +79,23 @@ test('profile: pfp upload and retrieval', async () => {
   });
   assert.equal(bad.status, 400);
   assert.equal((await bad.json()).error, 'pfp must be image/jpeg or image/png');
+});
+
+test('profile: removing the pfp resets the account to the default avatar', async () => {
+  const victim = await register(srv.base, 'pfp_remove_me');
+  const del = await fetch(`${srv.base}/api/auth/me/pfp`, { method: 'DELETE', headers: headers(victim.cookie) });
+  assert.equal(del.status, 200);
+  assert.equal((await del.json()).pfp, '/img/blankpfp.jpg');
+
+  const { user } = await (await fetch(`${srv.base}/api/auth/me`, { headers: headers(victim.cookie) })).json();
+  assert.equal(user.pfp, '/img/blankpfp.jpg');
+
+  const file = await fetch(`${srv.base}/api/auth/me/pfp`, { headers: headers(victim.cookie) });
+  assert.equal(file.status, 404, 'stored pfp file must be gone after removal');
+
+  const list = await fetch(`${srv.base}/api/users`, { headers: headers(victim.cookie) });
+  const listed = (await list.json()).users.find((u) => u.username === 'pfp_remove_me');
+  assert.equal(listed.pfp, '/img/blankpfp.jpg');
 });
 
 test('profile: pfp works even when the user has no storage dir yet', async () => {

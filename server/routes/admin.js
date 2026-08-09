@@ -2,11 +2,11 @@ import { Router } from 'express';
 import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { GAMES_ROOT, USERS_ROOT } from '../config.js';
+import { DEFAULT_PFP_URL, GAMES_ROOT, USERS_ROOT } from '../config.js';
 import { getDb, now } from '../db.js';
 import { requireAdmin } from '../security.js';
 import { hashPassword } from '../security.js';
-import { cleanUsername, normalizeUsername } from '../usernames.js';
+import { cleanUsername, MAX_USERNAME_LENGTH, normalizeUsername } from '../usernames.js';
 
 const require = createRequire(import.meta.url);
 const { ZipArchive } = require('archiver');
@@ -37,7 +37,7 @@ adminRouter.get('/bench', async (req, res, next) => {
     const data = Buffer.allocUnsafe(MB * 1024 * 1024);
     for (let i = 0; i < data.length; i += 4) data.writeUInt32LE((i * 2654435761) >>> 0, i);
     const run = (level) =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         const start = process.hrtime.bigint();
         let bytes = 0;
         const archive = new ZipArchive({ zlib: { level } });
@@ -46,7 +46,7 @@ adminRouter.get('/bench', async (req, res, next) => {
           const secs = Number(process.hrtime.bigint() - start) / 1e9;
           resolve({ method: level === 0 ? 'store' : `deflate-${level}`, mbps: Math.round((MB / secs) * 10) / 10, out_mb: Math.round((bytes / 1048576) * 10) / 10 });
         });
-        archive.on('error', resolve);
+        archive.on('error', reject);
         archive.append(data, { name: 'bench.bin' });
         archive.finalize();
       });
@@ -70,7 +70,8 @@ adminRouter.get('/stats', async (req, res, next) => {
          FROM downloads d JOIN games g ON g.id = d.game_id JOIN users u ON u.id = d.user_id
          ORDER BY d.created_at DESC LIMIT 20`,
       )
-      .all();
+      .all()
+      .map((r) => ({ ...r, user_pfp: r.user_pfp || DEFAULT_PFP_URL }));
     res.json({ stats: { users, games, downloads, comments, storage_bytes: storageBytes, recent_downloads: recent } });
   } catch (err) {
     next(err);
@@ -85,7 +86,8 @@ adminRouter.get('/users', (req, res) => {
          (SELECT COUNT(*) FROM downloads d WHERE d.user_id = u.id) AS downloads_count
        FROM users u ORDER BY u.created_at ASC`,
     )
-    .all();
+    .all()
+    .map((u) => ({ ...u, pfp: u.pfp || DEFAULT_PFP_URL }));
   res.json({ users });
 });
 
@@ -96,6 +98,9 @@ adminRouter.post('/users', (req, res) => {
   const cleaned = cleanUsername(username);
   if (!cleaned) {
     return res.status(400).json({ error: 'username is required' });
+  }
+  if (cleaned.length > MAX_USERNAME_LENGTH) {
+    return res.status(400).json({ error: `username too long (max ${MAX_USERNAME_LENGTH} characters)` });
   }
   if (typeof password !== 'string' || password.length < 6) {
     return res.status(400).json({ error: 'password must be at least 6 characters' });

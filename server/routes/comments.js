@@ -38,13 +38,13 @@ function notifyMentions(database, text, gameId, authorName, excludeIds) {
 const COMMENT_SELECT = `
   SELECT c.id, c.text, c.created_at, c.user_id, c.parent_id,
     COALESCE(u.username, 'deleted') AS author,
-    CASE WHEN c.user_id IS NOT NULL AND u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp' END AS author_pfp
+    CASE WHEN c.user_id IS NOT NULL AND u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp'
+         WHEN c.user_id IS NOT NULL THEN '/img/blankpfp.jpg' END AS author_pfp
   FROM comments c LEFT JOIN users u ON u.id = c.user_id
 `;
 
 function notifyReply(database, parent, gameId, replierName) {
-  if (parent.user_id === null) return;
-  if (parent.user_id === undefined) return;
+  if (parent.user_id == null) return;
   database
     .prepare(
       `INSERT INTO notifications (user_id, type, title, body, link, created_at)
@@ -81,7 +81,7 @@ commentsRouter.post('/games/:id/comments', (req, res) => {
     .prepare('INSERT INTO comments (game_id, user_id, text, parent_id, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(req.params.id, req.user.id, text.trim(), parent ? parent.id : null, now());
   const comment = database.prepare(`${COMMENT_SELECT} WHERE c.id = ?`).get(info.lastInsertRowid);
-  const exclude = [];
+  const exclude = [req.user.id];
   if (parent && parent.user_id !== req.user.id) {
     notifyReply(database, parent, req.params.id, req.user.username);
     exclude.push(parent.user_id);

@@ -1,4 +1,4 @@
-import { api, esc, fmtDate } from '../api.js';
+import { api, fmtDate } from '../api.js';
 import { confirmDialog, h, toast } from '../ui.js';
 import { navigate } from '../app.js';
 
@@ -41,32 +41,59 @@ export async function renderProfile(el, state) {
     statGrid,
   ]);
 
-  const pfpInput = h('input', { type: 'file', accept: 'image/jpeg,image/png' });
-  const saveBtn = h('button', { class: 'btn btn-primary', text: 'save pfp' });
   const pfpErr = h('div', { class: 'form-error' });
-  const pfpPanel = h('div', { class: 'panel' }, [
+  const pfpPanel = h('div', { class: 'panel', id: 'pfp-panel' }, [
     h('h3', { text: 'change profile picture' }),
-    h('div', { class: 'flex' }, [pfpInput, saveBtn]),
+    h('div', { class: 'pfp-dropzone' }, [
+      h('p', { class: 'muted small', text: 'drop a new picture (jpg/png) here — it saves instantly' }),
+    ]),
+    h('div', { class: 'flex', style: 'margin-top:10px;' }, [
+      h('button', { class: 'btn btn-ghost btn-sm', text: 'remove profile picture', hidden: state.user.pfp === '/img/blankpfp.jpg', onclick: removePfp }),
+    ]),
     pfpErr,
   ]);
 
-  saveBtn.onclick = async () => {
-    const file = pfpInput.files[0];
-    if (!file) return;
+  let busy = false;
+  async function uploadPfpFile(file) {
     pfpErr.textContent = '';
-    saveBtn.disabled = true;
-    saveBtn.textContent = '…';
     try {
       await api.auth.uploadPfp(file);
       toast('profile picture saved');
       await refresh();
       navigate('#/profile');
-    } catch (e) {
-      pfpErr.textContent = e.message;
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'save pfp';
+    } catch (err) {
+      pfpErr.textContent = err.message;
+    } finally {
+      busy = false;
     }
-  };
+  }
+
+  async function removePfp() {
+    pfpErr.textContent = '';
+    try {
+      await api.auth.removePfp();
+      toast('profile picture removed');
+      await refresh();
+      navigate('#/profile');
+    } catch (err) {
+      pfpErr.textContent = err.message;
+    }
+  }
+
+  pfpPanel.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    pfpPanel.classList.add('drag-over');
+  });
+  pfpPanel.addEventListener('dragleave', () => pfpPanel.classList.remove('drag-over'));
+  pfpPanel.addEventListener('drop', (e) => {
+    e.preventDefault();
+    pfpPanel.classList.remove('drag-over');
+    const file = [...(e.dataTransfer?.files || [])].find((f) => /^image\/(jpeg|png)$/.test(f.type));
+    if (file && !busy) {
+      busy = true;
+      uploadPfpFile(file);
+    }
+  });
 
   const dangerErr = h('div', { class: 'form-error' });
   const dangerBtn = h('button', { class: 'btn btn-danger', text: 'delete account' });

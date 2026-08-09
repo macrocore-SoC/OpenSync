@@ -30,6 +30,7 @@ function toPublicGame(row) {
     total_size: row.total_size,
     uploaded_by: row.uploaded_by,
     uploader_name: row.uploader_name,
+    uploader_pfp: row.uploader_pfp,
     created_at: row.created_at,
     download_count: row.download_count,
   };
@@ -37,7 +38,8 @@ function toPublicGame(row) {
 
 const GAME_SELECT = `
   SELECT g.*, u.username AS uploader_name,
-    '/api/auth/users/' || u.id || '/pfp' AS uploader_pfp,
+    CASE WHEN u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp'
+         WHEN u.id IS NOT NULL THEN '/img/blankpfp.jpg' END AS uploader_pfp,
     (SELECT COUNT(*) FROM downloads d WHERE d.game_id = g.id) AS download_count
   FROM games g LEFT JOIN users u ON u.id = g.uploaded_by
 `;
@@ -64,7 +66,8 @@ gamesRouter.get('/:id', async (req, res, next) => {
       .prepare(
         `SELECT c.id, c.text, c.created_at, c.user_id, c.parent_id,
           COALESCE(u.username, 'deleted') AS author,
-          CASE WHEN c.user_id IS NOT NULL AND u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp' END AS author_pfp
+          CASE WHEN c.user_id IS NOT NULL AND u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp'
+               WHEN c.user_id IS NOT NULL THEN '/img/blankpfp.jpg' END AS author_pfp
          FROM comments c LEFT JOIN users u ON u.id = c.user_id
          WHERE c.game_id = ? ORDER BY c.created_at ASC`,
       )
@@ -243,13 +246,18 @@ gamesRouter.post('/:id/files', async (req, res, next) => {
     }
 
     const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
+    let chunkBytes = 0;
+    for await (const chunk of req) {
+      chunkBytes += chunk.length;
+      if (chunkBytes > CHUNK_SIZE) return res.status(413).json({ error: 'chunk too large' });
+      chunks.push(chunk);
+    }
     const buf = Buffer.concat(chunks);
     await appendFile(partPath, buf);
 
     database.prepare('UPDATE games SET last_activity_at = ? WHERE id = ?').run(now(), game.id);
 
-const partSize = current + buf.length;
+    const partSize = current + buf.length;
     if (index === total - 1) {
       if (partSize !== declaredSize) {
         await rm(partPath, { force: true });
@@ -325,5 +333,3 @@ gamesRouter.post('/:id/upload/complete', async (req, res, next) => {
     next(err);
   }
 });
-
-export { CHUNK_SIZE };

@@ -176,8 +176,9 @@ docker run -d --name opensync --restart unless-stopped -p 3000:3000 -v opensync-
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-* **Upload a game**: pick a folder (drag-and-drop / `webkitdirectory`), watch per-file progress with ETA, and resume after interruptions. The server hashes everything into a clean manifest.
+* **Upload a game**: pick a folder — or just **drag & drop** it onto the page — watch per-file progress with ETA, and resume after interruptions. The server hashes everything into a clean manifest.
 * **Sync your save**: run a sync from the game page pointing at your local game folder. Hashes are computed in your browser, only the diff is uploaded, and your overlay is stored per user on the server.
+* **Profile picture**: optional at registration — drop an image onto the picker; the default blank avatar shows until then. On your profile, dropping a picture saves it instantly.
 * **Download**: two choices per game — *fresh install* (clean files only) or *synced game* (your overlay merged in). Zips stream directly from disk; deflate compression is opt-in via `?deflate=1..9`.
 
 ### The `opensync` CLI
@@ -197,6 +198,7 @@ opensync            # live dashboard (fallback: one-shot status)
 | `status` | One-shot status report — pipeline-friendly. |
 | `logs` | Tails the server log (`tail -F`). |
 | `update` | `git pull --ff-only` + `npm install`, then restarts the service only if it was running. |
+| `help` | Prints the usage overview. |
 | `uninstall` | Stops the server, removes the `opensync` command itself (sudo prompt if needed), and asks whether to delete your data in `OPENSYNC_STORAGE` and the whole install directory (both default to no). |
 
 The CLI is a self-managed **PID-file service**: state lives in `storage/opensync.pid` (pid on the first line, port on the second). A service counts as *active* only when the process is alive **and** `GET /api/health` on `127.0.0.1:<port>` returns `{"ok":true}`.
