@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { after } from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createGame, headers, register, startServer, syncComplete, uploadOverlayFile } from './helpers.js';
 
