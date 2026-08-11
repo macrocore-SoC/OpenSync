@@ -479,6 +479,10 @@ function renderComments(el, game, comments) {
 function renderEdit(el, game) {
   const name = h('div', { class: 'field' }, [h('label', { text: 'name' }), h('input', { type: 'text', value: game.name })]);
   const desc = h('div', { class: 'field' }, [h('label', { text: 'description (optional)' }), h('textarea', {}, game.description || '')]);
+  const execField = h('div', { class: 'field' }, [
+    h('label', { text: 'executable path (optional)' }),
+    h('input', { type: 'text', name: 'executable', value: game.executable || '', placeholder: 'e.g. bin/Game.exe' }),
+  ]);
   const reqs = createReqFields(game.system_requirements || '');
   const cover = h('div', { class: 'field' }, [
     h('label', { text: 'cover image (optional, jpg/png)' }),
@@ -522,7 +526,7 @@ function renderEdit(el, game) {
   const err = h('div', { class: 'form-error' });
   const panel = h('div', { class: 'panel' }, [
     h('h3', { text: 'edit game' }),
-    name, desc, reqs.wrap, cover,
+    name, desc, execField, reqs.wrap, cover,
     h('div', { class: 'flex' }, [save, h('button', { class: 'btn btn-ghost', text: 'cancel', onclick: () => renderGame(el) })]),
     err,
   ]);
@@ -532,7 +536,12 @@ function renderEdit(el, game) {
 
   save.onclick = async () => {
     try {
-      await api.games.patch(game.id, { name: name.querySelector('input').value, description: desc.querySelector('textarea').value, system_requirements: reqs.read() });
+      await api.games.patch(game.id, {
+        name: name.querySelector('input').value,
+        description: desc.querySelector('textarea').value,
+        system_requirements: reqs.read(),
+        executable: execField.querySelector('input').value.trim() || null,
+      });
       const coverInput = cover.querySelector('input');
       if (coverInput.files[0]) {
         await api.games.cover(game.id, coverInput.files[0]);

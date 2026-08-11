@@ -50,6 +50,9 @@ app.use((err, _req, res, _next) => {
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'invalid JSON body' });
   }
+  if (err instanceof URIError) {
+    return res.status(400).json({ error: 'invalid path' });
+  }
   if (err.status && err.status < 500) {
     return res.status(err.status).json({ error: err.message });
   }

@@ -101,6 +101,87 @@ function buildUploadView() {
     h('textarea', { placeholder: 'short bio of the game…' }),
   ]);
   const reqs = createReqFields();
+  let execPath = '';
+  const execField = h('div', { class: 'field' }, [
+    h('label', { text: 'executable (optional)' }),
+    h('div', { class: 'exec-picker' }, [
+      h('input', { type: 'file', style: 'display:none' }),
+      h('button', { class: 'btn btn-ghost btn-sm', text: 'choose file…' }),
+      h('span', { class: 'muted small', text: 'or drop it here' }),
+    ]),
+    h('div', { class: 'exec-path muted small', text: '— none —' }),
+    h('div', { class: 'exec-options', hidden: true }),
+  ]);
+  const execPicker = execField.querySelector('.exec-picker');
+  const execInput = execField.querySelector('input');
+  const execBtn = execField.querySelector('button');
+  const execPathLine = execField.querySelector('.exec-path');
+  const execOptions = execField.querySelector('.exec-options');
+
+  function setExecPath(path) {
+    execPath = path || '';
+    execOptions.hidden = true;
+    execOptions.replaceChildren();
+    execPathLine.classList.remove('ok', 'err');
+    if (path) execPathLine.classList.add('ok');
+    execPathLine.textContent = path || '— none —';
+  }
+
+  function showExecErr(msg) {
+    execOptions.hidden = true;
+    execOptions.replaceChildren();
+    execPathLine.classList.remove('ok');
+    execPathLine.classList.add('err');
+    execPathLine.textContent = msg;
+  }
+
+  // cross-reference the dropped/picked file against the selected folder:
+  // basename match first (case-insensitive), size equality as a tiebreaker,
+  // an inline picker list when the name is ambiguous.
+  function matchUploaded(file) {
+    const name = file.name.toLowerCase();
+    const byName = files.filter((f) => f.webkitRelativePath.split('/').pop().toLowerCase() === name);
+    if (!byName.length) return null;
+    const bySize = byName.filter((f) => f.size === file.size);
+    if (bySize.length === 1) return { path: bySize[0].webkitRelativePath };
+    if (byName.length === 1) return { path: byName[0].webkitRelativePath };
+    return { ambiguous: byName.map((f) => f.webkitRelativePath) };
+  }
+
+  function execFilePicked(file) {
+    if (!file) return;
+    if (!files.length) { showExecErr('select the game folder first'); return; }
+    const m = matchUploaded(file);
+    if (!m) { showExecErr("that file isn't in the selected folder"); return; }
+    if (m.ambiguous) {
+      execPathLine.classList.remove('ok', 'err');
+      execPathLine.textContent = 'multiple files match — pick one:';
+      execOptions.replaceChildren(...m.ambiguous.map((p) => {
+        const b = h('button', { class: 'btn btn-ghost btn-sm exec-option', text: p });
+        b.addEventListener('click', () => setExecPath(p));
+        return b;
+      }));
+      execOptions.hidden = false;
+      return;
+    }
+    setExecPath(m.path);
+  }
+
+  execBtn.addEventListener('click', () => { if (files.length) execInput.click(); });
+  execInput.addEventListener('change', () => {
+    execFilePicked(execInput.files[0] || null);
+    execInput.value = '';
+  });
+  execPicker.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (files.length) execPicker.classList.add('drag-over');
+  });
+  execPicker.addEventListener('dragleave', () => execPicker.classList.remove('drag-over'));
+  execPicker.addEventListener('drop', (e) => {
+    e.preventDefault();
+    execPicker.classList.remove('drag-over');
+    execFilePicked(e.dataTransfer?.files?.[0] || null);
+  });
   const cover = h('div', { class: 'field' }, [
     h('label', { text: 'cover image (optional, jpg/png)' }),
     h('div', { class: 'cover-picker' }, [
@@ -175,7 +256,7 @@ function buildUploadView() {
   const root = h('div', {}, [
     h('h1', { class: 'page-title' }, 'upload a game'),
     h('div', { class: 'panel drop-target' }, [
-      h('div', { class: 'form-grid' }, [name, desc, reqs.wrap, cover]),
+      h('div', { class: 'form-grid' }, [name, desc, execField, reqs.wrap, cover]),
       h('div', { class: 'drop-hint', hidden: true }, 'drop your game folder here'),
       h('div', { class: 'flex' }, [
         folderBtn,
@@ -239,6 +320,20 @@ function buildUploadView() {
       : '';
     startBtn.disabled = !files.length;
     preview.replaceChildren(...files.slice(0, 20).map((f) => h('div', { class: 'upload-row-name small faint', text: f.webkitRelativePath })));
+
+    execBtn.disabled = !files.length;
+    execPicker.classList.toggle('disabled', !files.length);
+    if (!files.length) {
+      setExecPath('');
+      return;
+    }
+    // keep the current selection if it's still in the folder, else auto-detect
+    if (!execPath || !files.some((f) => f.webkitRelativePath === execPath)) {
+      const candidate = files
+        .map((f) => f.webkitRelativePath)
+        .find((p) => /\.(exe|bat|cmd|com|bin|sh|appimage|x86_64|jar|py|elf)$/i.test(p));
+      setExecPath(candidate || '');
+    }
   }
 
   folderBtn.onclick = () => {
@@ -266,6 +361,7 @@ function buildUploadView() {
         name: nameVal,
         description: descVal,
         system_requirements: reqs.read(),
+        executable: execPath || undefined,
       });
       const coverInput = cover.querySelector('input');
       if (coverInput.files[0]) await api.games.cover(game.id, coverInput.files[0]);

@@ -28,6 +28,7 @@ function toPublicGame(row) {
     system_requirements: row.system_requirements,
     status: row.status,
     total_size: row.total_size,
+    executable: row.executable,
     uploaded_by: row.uploaded_by,
     uploader_name: row.uploader_name,
     uploader_pfp: row.uploader_pfp,
@@ -81,17 +82,22 @@ gamesRouter.get('/:id', async (req, res, next) => {
 
 gamesRouter.post('/', async (req, res, next) => {
   try {
-    const { name, description = '', system_requirements = '' } = req.body || {};
+    const { name, description = '', system_requirements = '', executable } = req.body || {};
     if (typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'name is required' });
+    }
+    let exec = null;
+    if (typeof executable === 'string' && executable.trim()) {
+      exec = safeRelPath(executable.trim());
+      if (!exec) return res.status(400).json({ error: 'invalid executable path' });
     }
     const database = getDb();
     const info = database
       .prepare(
-        `INSERT INTO games (name, slug, description, system_requirements, status, uploaded_by, created_at, last_activity_at)
-         VALUES (?, ?, ?, ?, 'processing', ?, ?, ?)`,
+        `INSERT INTO games (name, slug, description, system_requirements, executable, status, uploaded_by, created_at, last_activity_at)
+         VALUES (?, ?, ?, ?, ?, 'processing', ?, ?, ?)`,
       )
-      .run(name.trim(), uniqueSlug(name), String(description).slice(0, 10000), String(system_requirements).slice(0, 5000), req.user.id, now(), now());
+      .run(name.trim(), uniqueSlug(name), String(description).slice(0, 10000), String(system_requirements).slice(0, 5000), exec, req.user.id, now(), now());
     await ensureGameDirs(info.lastInsertRowid);
     database
       .prepare(
@@ -153,10 +159,29 @@ gamesRouter.patch('/:id', async (req, res, next) => {
     const game = database.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
     if (!game) return res.status(404).json({ error: 'game not found' });
     if (!canManage(game, req.user)) return res.status(403).json({ error: 'not allowed' });
-    const { name, description, system_requirements } = req.body || {};
-    database
-      .prepare('UPDATE games SET name = COALESCE(?, name), description = COALESCE(?, description), system_requirements = COALESCE(?, system_requirements) WHERE id = ?')
-      .run(name ? String(name).trim() : null, typeof description === 'string' ? description.slice(0, 10000) : null, typeof system_requirements === 'string' ? system_requirements.slice(0, 5000) : null, game.id);
+    const { name, description, system_requirements, executable } = req.body || {};
+    const sets = [
+      'name = COALESCE(?, name)',
+      'description = COALESCE(?, description)',
+      'system_requirements = COALESCE(?, system_requirements)',
+    ];
+    const params = [
+      name ? String(name).trim() : null,
+      typeof description === 'string' ? description.slice(0, 10000) : null,
+      typeof system_requirements === 'string' ? system_requirements.slice(0, 5000) : null,
+    ];
+    if (executable !== undefined) {
+      if (executable === null || executable === '') {
+        sets.push('executable = NULL');
+      } else {
+        const clean = safeRelPath(String(executable).trim());
+        if (!clean) return res.status(400).json({ error: 'invalid executable path' });
+        sets.push('executable = ?');
+        params.push(clean);
+      }
+    }
+    params.push(game.id);
+    database.prepare(`UPDATE games SET ${sets.join(', ')} WHERE id = ?`).run(...params);
     res.json({ game: getGame(game.id) });
   } catch (err) {
     next(err);

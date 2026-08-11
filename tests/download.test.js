@@ -162,3 +162,127 @@ test('download: benchmark endpoint reports positive throughput and needs admin',
   const deflate = results.find((r) => r.method === 'deflate-6');
   assert.ok(store.mbps > deflate.mbps, 'store should outrun deflate');
 });
+
+// ---- per-file download endpoint (GET /api/games/:id/files/:path*) ----
+
+const LEVEL01 = FILES.find((f) => f.path === 'bin/level01.wad');
+const README = FILES.find((f) => f.path === 'readme.txt');
+
+test('per-file: full download returns exact bytes with correct headers', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, { headers: headers(admin.cookie) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('accept-ranges'), 'bytes');
+  assert.match(res.headers.get('content-type'), /octet-stream/);
+  assert.equal(res.headers.get('content-length'), String(README.data.length));
+  assert.equal(await res.text(), README.data);
+});
+
+test('per-file: empty file downloads with length 0', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/data/empty.bin`, { headers: headers(admin.cookie) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-length'), '0');
+  assert.equal((await res.arrayBuffer()).byteLength, 0);
+});
+
+test('per-file: mid-file Range returns 206 with the exact slice', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/bin/level01.wad`, {
+    headers: { ...headers(admin.cookie), range: 'bytes=10-19' },
+  });
+  assert.equal(res.status, 206);
+  assert.equal(res.headers.get('content-range'), `bytes 10-19/${LEVEL01.data.length}`);
+  assert.equal(res.headers.get('content-length'), '10');
+  assert.equal(await res.text(), LEVEL01.data.slice(10, 20));
+});
+
+test('per-file: open-ended and suffix Ranges work', async () => {
+  const open = await fetch(`${srv.base}/api/games/${game.id}/files/bin/level01.wad`, {
+    headers: { ...headers(admin.cookie), range: 'bytes=995-' },
+  });
+  assert.equal(open.status, 206);
+  assert.equal(open.headers.get('content-range'), `bytes 995-999/${LEVEL01.data.length}`);
+  assert.equal(await open.text(), LEVEL01.data.slice(995));
+
+  const suffix = await fetch(`${srv.base}/api/games/${game.id}/files/bin/level01.wad`, {
+    headers: { ...headers(admin.cookie), range: 'bytes=-10' },
+  });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers.get('content-range'), `bytes 990-999/${LEVEL01.data.length}`);
+  assert.equal(await suffix.text(), LEVEL01.data.slice(-10));
+});
+
+test('per-file: unsatisfiable Range is 416', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/bin/level01.wad`, {
+    headers: { ...headers(admin.cookie), range: 'bytes=5000-' },
+  });
+  assert.equal(res.status, 416);
+});
+
+test('per-file: HEAD returns headers without a body', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, {
+    method: 'HEAD',
+    headers: headers(admin.cookie),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-length'), String(README.data.length));
+  assert.equal((await res.text()).length, 0);
+});
+
+test('per-file: traversal and malformed paths are 400', async () => {
+  for (const p of ['%2e%2e%2fsecret', '..%2Fsecret', '%2e%2e%5csecret', '%zz']) {
+    const res = await fetch(`${srv.base}/api/games/${game.id}/files/${p}`, { headers: headers(admin.cookie) });
+    assert.equal(res.status, 400, `path ${p} must be rejected`);
+  }
+});
+
+test('per-file: bare dot segments are stripped by the router, never served as file bytes', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/%2e%2e`, { headers: headers(admin.cookie) });
+  assert.notEqual(res.headers.get('content-type'), 'application/octet-stream', 'dot segments must never resolve to file content');
+});
+
+test('per-file: missing file is 404', async () => {
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/nope.bin`, { headers: headers(admin.cookie) });
+  assert.equal(res.status, 404);
+});
+
+test('per-file: unknown game 404, processing game 409', async () => {
+  const missing = await fetch(`${srv.base}/api/games/999999/files/x.bin`, { headers: headers(admin.cookie) });
+  assert.equal(missing.status, 404);
+
+  const created = await fetch(`${srv.base}/api/games`, {
+    method: 'POST',
+    headers: { ...headers(admin.cookie), 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Processing Only' }),
+  });
+  const { game: processing } = await created.json();
+  const res = await fetch(`${srv.base}/api/games/${processing.id}/files/x.bin`, { headers: headers(admin.cookie) });
+  assert.equal(res.status, 409);
+});
+
+test('per-file: overlay file shadows the clean copy (clean and overlay Ranges)', async () => {
+  const user = await register(srv.base, 'dl_perfile_overlay');
+  const changed = 'overlay readme';
+  await uploadOverlayFile(srv.base, user.cookie, game.id, 'readme.txt', changed, createHash('sha256').update(changed).digest('hex'));
+  await syncComplete(srv.base, user.cookie, game.id, []);
+
+  const res = await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, { headers: headers(user.cookie) });
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), changed);
+
+  const ranged = await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, {
+    headers: { ...headers(user.cookie), range: 'bytes=0-3' },
+  });
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers.get('content-range'), `bytes 0-3/${changed.length}`);
+  assert.equal(await ranged.text(), changed.slice(0, 4));
+});
+
+test('per-file: downloads do not bump download_count', async () => {
+  const list = await (await fetch(`${srv.base}/api/games`, { headers: headers(admin.cookie) })).json();
+  const before = list.games.find((g) => g.id === game.id).download_count;
+  await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, { headers: headers(admin.cookie) });
+  await fetch(`${srv.base}/api/games/${game.id}/files/readme.txt`, {
+    headers: { ...headers(admin.cookie), range: 'bytes=0-1' },
+  });
+  const after = (await (await fetch(`${srv.base}/api/games`, { headers: headers(admin.cookie) })).json()).games.find((g) => g.id === game.id).download_count;
+  assert.equal(after, before);
+});

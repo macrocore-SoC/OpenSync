@@ -7,7 +7,9 @@ import { getDb, now } from '../db.js';
 import { loadManifest } from '../manifest.js';
 import {
   clearOverlay,
+  effectiveFiles,
   loadOverlayInfo,
+  loadOverlayManifest,
   rebuildOverlayManifest,
   saveDeletions,
   validateOverlayFile,
@@ -140,7 +142,22 @@ syncRouter.get('/:id/overlay', async (req, res, next) => {
   try {
     if (!(await getGameOr404(res, req.params.id))) return;
     const info = await loadOverlayInfo(req.user.id, req.params.id);
-    res.json({ overlay: info });
+    const fileList = loadOverlayManifest(req.user.id, req.params.id);
+    res.json({ overlay: { ...info, file_list: fileList ? fileList.files : [] } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Effective file set for a user: clean manifest + overlay - deletions, with the
+// source of each file. The launcher uses this for pre-launch pulls (only
+// `source: 'overlay'` files need downloading) and 3-way diffing.
+syncRouter.get('/:id/effective', async (req, res, next) => {
+  try {
+    if (!(await getGameOr404(res, req.params.id))) return;
+    const game = getDb().prepare('SELECT status FROM games WHERE id = ?').get(req.params.id);
+    if (game.status !== 'ready') return res.status(409).json({ error: 'game is being processed' });
+    res.json(await effectiveFiles(req.user.id, req.params.id));
   } catch (err) {
     next(err);
   }

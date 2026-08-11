@@ -157,3 +157,98 @@ test('overlay: stale .part files are excluded from the rebuilt manifest', async 
   assert.equal(overlay.files, 0, '.part files must never enter the overlay manifest');
   assert.equal(existsSync(path.join(overlayRoot, 'stale.bin.part')), false, 'sync/complete must purge leftover part files');
 });
+
+test('overlay: GET /:id/overlay exposes file_list while keeping files as a count', async () => {
+  const { cookie } = await register(srv.base, 'overlay_filelist');
+  const game = await createGame(srv.base, cookie, 'FileList', [{ path: 'base.bin', data: 'original' }]);
+
+  const changed = Buffer.from('changed bytes');
+  const changedHash = createHash('sha256').update(changed).digest('hex');
+  await uploadOverlayFile(srv.base, cookie, game.id, 'base.bin', changed, changedHash);
+  await uploadOverlayFile(srv.base, cookie, game.id, 'new.bin', 'added', createHash('sha256').update('added').digest('hex'));
+  await syncComplete(srv.base, cookie, game.id, []);
+
+  const { overlay } = await (await fetch(`${srv.base}/api/games/${game.id}/overlay`, { headers: headers(cookie) })).json();
+  assert.equal(overlay.files, 2, 'files must remain the numeric count for the web UI');
+  const byPath = new Map(overlay.file_list.map((f) => [f.path, f]));
+  assert.equal(byPath.size, 2);
+  assert.equal(byPath.get('base.bin').hash, changedHash);
+  assert.equal(byPath.get('new.bin').size, 5);
+  assert.ok(overlay.file_list.every((f) => /^[0-9a-f]{64}$/.test(f.hash)));
+});
+
+test('overlay: GET /:id/effective lists clean+overlay with sources and honors deletions', async () => {
+  const { cookie } = await register(srv.base, 'overlay_effective');
+  const game = await createGame(srv.base, cookie, 'EffGame', [
+    { path: 'keep.bin', data: 'keep' },
+    { path: 'change.bin', data: 'orig' },
+    { path: 'gone.bin', data: 'gone' },
+  ]);
+
+  const changed = Buffer.from('new overlay');
+  const changedHash = createHash('sha256').update(changed).digest('hex');
+  await uploadOverlayFile(srv.base, cookie, game.id, 'change.bin', changed, changedHash);
+  await uploadOverlayFile(srv.base, cookie, game.id, 'added.bin', 'add', createHash('sha256').update('add').digest('hex'));
+  await syncComplete(srv.base, cookie, game.id, ['gone.bin']);
+
+  const res = await fetch(`${srv.base}/api/games/${game.id}/effective`, { headers: headers(cookie) });
+  assert.equal(res.status, 200);
+  const { files, deletions } = await res.json();
+  assert.deepEqual(deletions, ['gone.bin']);
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  assert.equal(byPath.get('keep.bin').source, 'clean');
+  assert.equal(byPath.get('change.bin').source, 'overlay');
+  assert.equal(byPath.get('change.bin').hash, changedHash);
+  assert.equal(byPath.get('added.bin').source, 'overlay');
+  assert.equal(byPath.get('gone.bin'), undefined);
+  assert.deepEqual(files.map((f) => f.path), ['added.bin', 'change.bin', 'keep.bin'], 'sorted by path');
+});
+
+test('overlay: effective excludes stale deletions after a re-upload changes the manifest', async () => {
+  const { cookie } = await register(srv.base, 'overlay_stale');
+  const game = await createGame(srv.base, cookie, 'StaleGame', [
+    { path: 'a.bin', data: 'aaa' },
+    { path: 'b.bin', data: 'bbb' },
+  ]);
+  await syncComplete(srv.base, cookie, game.id, ['b.bin']);
+
+  const before = await (await fetch(`${srv.base}/api/games/${game.id}/effective`, { headers: headers(cookie) })).json();
+  assert.equal(before.deletions.length, 1);
+
+  const buf = Buffer.from('AAA-CHANGED');
+  const total = Math.max(1, Math.ceil(buf.length / 4194304));
+  for (let i = 0; i < total; i++) {
+    const chunk = buf.subarray(i * 4194304, (i + 1) * 4194304);
+    const r = await fetch(`${srv.base}/api/games/${game.id}/files`, {
+      method: 'POST',
+      headers: { ...headers(cookie), 'x-path': encodeURIComponent('a.bin'), 'x-index': String(i), 'x-total': String(total), 'x-size': String(buf.length) },
+      body: new Uint8Array(chunk),
+    });
+    assert.equal(r.status, 200, await r.text());
+  }
+  await fetch(`${srv.base}/api/games/${game.id}/upload/complete`, { method: 'POST', headers: headers(cookie) });
+  for (let i = 0; i < 60; i++) {
+    const st = await (await fetch(`${srv.base}/api/games/${game.id}/status`, { headers: headers(cookie) })).json();
+    if (st.status === 'ready') break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const after = await (await fetch(`${srv.base}/api/games/${game.id}/effective`, { headers: headers(cookie) })).json();
+  assert.equal(after.deletions.length, 0, 'stale deletions must be dropped');
+  assert.ok(after.files.some((f) => f.path === 'b.bin' && f.source === 'clean'), 'the deleted file is back');
+});
+
+test('overlay: effective 404s unknown games and 409s processing games', async () => {
+  const { cookie } = await register(srv.base, 'overlay_eff_err');
+  const missing = await fetch(`${srv.base}/api/games/999999/effective`, { headers: headers(cookie) });
+  assert.equal(missing.status, 404);
+
+  const created = await fetch(`${srv.base}/api/games`, {
+    method: 'POST',
+    headers: { ...headers(cookie), 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'EffProcessing' }),
+  });
+  const { game } = await created.json();
+  const res = await fetch(`${srv.base}/api/games/${game.id}/effective`, { headers: headers(cookie) });
+  assert.equal(res.status, 409);
+});

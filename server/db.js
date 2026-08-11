@@ -100,6 +100,9 @@ const MIGRATIONS = [
   `
   UPDATE users SET pfp = '/api/auth/users/' || id || '/pfp' WHERE pfp IS NOT NULL;
   `,
+  `
+  ALTER TABLE games ADD COLUMN executable TEXT;
+  `,
 ];
 
 let db = null;

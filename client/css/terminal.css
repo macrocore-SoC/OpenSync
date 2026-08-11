@@ -353,7 +353,8 @@ h3 {
 .field input[type="text"],
 .field input[type="password"],
 .field input[type="file"],
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   background: var(--bg-soft);
   border: 1px solid var(--border);
@@ -364,8 +365,19 @@ h3 {
   border-radius: var(--radius);
 }
 
+.field select {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.field select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -1316,13 +1328,41 @@ table.tbl {
   text-align: center;
 }
 
-.cover-picker {
+.cover-picker,
+.exec-picker {
   display: flex;
   gap: 12px;
   align-items: center;
   padding: 10px;
   border: 2px dashed var(--border);
   border-radius: 8px;
+}
+
+.exec-picker.disabled {
+  opacity: 0.45;
+}
+
+.exec-path {
+  margin-top: 8px;
+}
+
+.exec-path.ok {
+  color: var(--accent);
+}
+
+.exec-path.err {
+  color: var(--danger);
+}
+
+.exec-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.exec-options[hidden] {
+  display: none;
 }
 
 .cover-preview {
