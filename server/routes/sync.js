@@ -8,6 +8,7 @@ import { loadManifest } from '../manifest.js';
 import {
   clearOverlay,
   effectiveFiles,
+  loadDeletions,
   loadOverlayInfo,
   loadOverlayManifest,
   rebuildOverlayManifest,
@@ -104,18 +105,21 @@ syncRouter.post('/:id/sync/complete', async (req, res, next) => {
 
     const clean = loadManifest(req.params.id);
     const cleanPaths = new Set((clean?.files || []).map((f) => f.path));
-    const valid = [];
+    const existing = loadDeletions(req.user.id, req.params.id);
+    const valid = new Set((existing?.paths || []).filter((p) => cleanPaths.has(p)));
+    const fresh = [];
     for (const d of deletions) {
       const rel = safeRelPath(d);
-      if (rel && cleanPaths.has(rel)) valid.push(rel);
+      if (rel && cleanPaths.has(rel)) fresh.push(rel);
     }
 
     const cleanCount = clean?.files?.length ?? 0;
-    if (valid.length > Math.ceil(cleanCount / 2) && force !== true) {
-      return res.status(400).json({ error: `too many deletions (${valid.length} of ${cleanCount} files); pass force: true to confirm` });
+    if (fresh.length > Math.ceil(cleanCount / 2) && force !== true) {
+      return res.status(400).json({ error: `too many deletions (${fresh.length} of ${cleanCount} files); pass force: true to confirm` });
     }
+    for (const d of fresh) valid.add(d);
 
-    await saveDeletions(req.user.id, req.params.id, valid, clean);
+    await saveDeletions(req.user.id, req.params.id, [...valid], clean);
     const overlayManifest = await rebuildOverlayManifest(req.user.id, req.params.id);
     getDb()
       .prepare('INSERT INTO syncs (user_id, game_id, created_at) VALUES (?, ?, ?)')
