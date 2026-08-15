@@ -16,7 +16,75 @@ gamesRouter.use(requireAuth);
 const MAX_COVER = 8 * 1024 * 1024;
 const AUTO_COMPLETE_DELAY = 2000;
 const pendingAutoComplete = new Map();
+const activeUploads = new Map();
 const reuploadedReady = new Set();
+
+function beginActiveUpload(gameId) {
+  const id = Number(gameId);
+  activeUploads.set(id, (activeUploads.get(id) || 0) + 1);
+  return () => {
+    const remaining = (activeUploads.get(id) || 1) - 1;
+    if (remaining > 0) activeUploads.set(id, remaining);
+    else activeUploads.delete(id);
+  };
+}
+
+function scheduleAutoComplete(gameId) {
+  const id = Number(gameId);
+  const existing = pendingAutoComplete.get(id);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(async () => {
+    pendingAutoComplete.delete(id);
+    const database = getDb();
+    const currentGame = database
+      .prepare('SELECT status, last_activity_at FROM games WHERE id = ?')
+      .get(id);
+    if (!currentGame || currentGame.status !== 'processing') return;
+
+    // A different worker may have started a request after the previous file
+    // finished. Never process while any chunk request is still in flight.
+    if ((activeUploads.get(id) || 0) > 0) {
+      scheduleAutoComplete(id);
+      return;
+    }
+
+    // The activity timestamp is updated when a request starts, not only after
+    // its body is written. This closes the gap where Windows cleanup could
+    // race a request that was still opening its .part file.
+    const lastActivity = Date.parse(currentGame.last_activity_at || '');
+    if (Number.isFinite(lastActivity) && Date.now() - lastActivity < AUTO_COMPLETE_DELAY) {
+      scheduleAutoComplete(id);
+      return;
+    }
+
+    const uploadsDir = gameUploadsDir(id);
+    try {
+      const entries = await readdir(uploadsDir, { recursive: true, withFileTypes: true });
+      if (entries.some((entry) => entry.isFile() && entry.name.endsWith('.part'))) {
+        scheduleAutoComplete(id);
+        return;
+      }
+    } catch {
+      // A missing uploads directory means there are no pending parts.
+    }
+
+    const filesDir = gameFilesDir(id);
+    let hasFiles = false;
+    try {
+      const entries = await readdir(filesDir, { withFileTypes: true });
+      hasFiles = entries.some((entry) => entry.isFile());
+    } catch {
+      hasFiles = false;
+    }
+    if (!hasFiles) return;
+
+    processGame(id).catch((err) => {
+      console.error(`[opensync] auto manifest generation failed for game ${id}:`, err);
+      getDb().prepare('UPDATE games SET status = ? WHERE id = ?').run('processing', id);
+    });
+  }, AUTO_COMPLETE_DELAY);
+  pendingAutoComplete.set(id, timer);
+}
 
 function toPublicGame(row) {
   return {
@@ -261,78 +329,62 @@ gamesRouter.post('/:id/files', async (req, res, next) => {
       return res.status(400).json({ error: 'invalid file size' });
     }
 
-    const partPath = path.join(gameUploadsDir(game.id), `${relPath}.part`);
-    await mkdir(path.dirname(partPath), { recursive: true });
+    const releaseActiveUpload = beginActiveUpload(game.id);
+    try {
+      database.prepare('UPDATE games SET last_activity_at = ? WHERE id = ?').run(now(), game.id);
 
-    const expectedOffset = index * CHUNK_SIZE;
-    const current = existsSync(partPath) ? (await stat(partPath)).size : 0;
-    if (current !== expectedOffset) {
-      return res.status(409).json({ error: 'chunk out of order; re-init from upload/init', received: Math.floor(current / CHUNK_SIZE) });
-    }
+      const partPath = path.join(gameUploadsDir(game.id), `${relPath}.part`);
+      await mkdir(path.dirname(partPath), { recursive: true });
 
-    const chunks = [];
-    let chunkBytes = 0;
-    for await (const chunk of req) {
-      chunkBytes += chunk.length;
-      if (chunkBytes > CHUNK_SIZE) return res.status(413).json({ error: 'chunk too large' });
-      chunks.push(chunk);
-    }
-    const buf = Buffer.concat(chunks);
-    await appendFile(partPath, buf);
-
-    database.prepare('UPDATE games SET last_activity_at = ? WHERE id = ?').run(now(), game.id);
-
-    const partSize = current + buf.length;
-    if (index === total - 1) {
-      if (partSize !== declaredSize) {
-        await rm(partPath, { force: true });
-        return res.status(400).json({ error: `size mismatch: got ${partSize}, expected ${declaredSize}` });
+      const expectedOffset = index * CHUNK_SIZE;
+      const current = existsSync(partPath) ? (await stat(partPath)).size : 0;
+      if (current !== expectedOffset) {
+        return res.status(409).json({ error: 'chunk out of order; re-init from upload/init', received: Math.floor(current / CHUNK_SIZE) });
       }
-      const finalPath = path.join(gameFilesDir(game.id), relPath);
-      await mkdir(path.dirname(finalPath), { recursive: true });
-      await rename(partPath, finalPath);
 
-      if (game.status === 'ready') reuploadedReady.add(game.id);
+      const chunks = [];
+      let chunkBytes = 0;
+      for await (const chunk of req) {
+        chunkBytes += chunk.length;
+        if (chunkBytes > CHUNK_SIZE) return res.status(413).json({ error: 'chunk too large' });
+        chunks.push(chunk);
+      }
+      const buf = Buffer.concat(chunks);
+      await appendFile(partPath, buf);
 
       database.prepare('UPDATE games SET last_activity_at = ? WHERE id = ?').run(now(), game.id);
 
-      const uploadsDir = gameUploadsDir(game.id);
-      let autoComplete = false;
-      try {
-        const entries = await readdir(uploadsDir, { recursive: true, withFileTypes: true });
-        autoComplete = entries.length === 0;
-      } catch {
-        autoComplete = true;
-      }
+      const partSize = current + buf.length;
+      if (index === total - 1) {
+        if (partSize !== declaredSize) {
+          await rm(partPath, { force: true });
+          return res.status(400).json({ error: `size mismatch: got ${partSize}, expected ${declaredSize}` });
+        }
+        const finalPath = path.join(gameFilesDir(game.id), relPath);
+        await mkdir(path.dirname(finalPath), { recursive: true });
+        await rename(partPath, finalPath);
 
-      if (autoComplete && game.status === 'processing') {
-        const existing = pendingAutoComplete.get(game.id);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(async () => {
-          pendingAutoComplete.delete(game.id);
-          const db = getDb();
-          const currentGame = db.prepare('SELECT status FROM games WHERE id = ?').get(game.id);
-          if (!currentGame || currentGame.status !== 'processing') return;
-          const filesDir = gameFilesDir(game.id);
-          let hasFiles = false;
-          try {
-            const entries = await readdir(filesDir, { withFileTypes: true });
-            hasFiles = entries.some((e) => e.isFile());
-          } catch {
-            hasFiles = false;
-          }
-          if (!hasFiles) return;
-          processGame(game.id).catch((err) => {
-            console.error(`[opensync] auto manifest generation failed for game ${game.id}:`, err);
-            getDb().prepare('UPDATE games SET status = ? WHERE id = ?').run('processing', game.id);
-          });
-        }, AUTO_COMPLETE_DELAY);
-        pendingAutoComplete.set(game.id, timer);
-      }
+        if (game.status === 'ready') reuploadedReady.add(game.id);
 
-      return res.json({ ok: true, done: true, path: relPath, autoComplete });
+        database.prepare('UPDATE games SET last_activity_at = ? WHERE id = ?').run(now(), game.id);
+
+        const uploadsDir = gameUploadsDir(game.id);
+        let autoComplete = false;
+        try {
+          const entries = await readdir(uploadsDir, { recursive: true, withFileTypes: true });
+          autoComplete = entries.length === 0;
+        } catch {
+          autoComplete = true;
+        }
+
+        if (autoComplete && game.status === 'processing') scheduleAutoComplete(game.id);
+
+        return res.json({ ok: true, done: true, path: relPath, autoComplete });
+      }
+      res.json({ ok: true, done: false, received: Math.floor(partSize / CHUNK_SIZE) });
+    } finally {
+      releaseActiveUpload();
     }
-    res.json({ ok: true, done: false, received: Math.floor(partSize / CHUNK_SIZE) });
   } catch (err) {
     next(err);
   }
@@ -343,11 +395,19 @@ gamesRouter.post('/:id/upload/complete', async (req, res, next) => {
     const game = getDb().prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
     if (!game) return res.status(404).json({ error: 'game not found' });
     if (!canManage(game, req.user)) return res.status(403).json({ error: 'not allowed' });
+    if ((activeUploads.get(game.id) || 0) > 0) {
+      return res.status(409).json({ error: 'uploads still in progress' });
+    }
     const wasReady = game.status === 'ready';
     if (wasReady) {
       if (!reuploadedReady.has(game.id)) return res.status(409).json({ error: 'game already processed' });
       reuploadedReady.delete(game.id);
       getDb().prepare('UPDATE games SET status = ? WHERE id = ?').run('processing', game.id);
+    }
+    const pending = pendingAutoComplete.get(game.id);
+    if (pending) {
+      clearTimeout(pending);
+      pendingAutoComplete.delete(game.id);
     }
     processGame(game.id).catch((err) => {
       console.error(`[opensync] manifest generation failed for game ${game.id}:`, err);
