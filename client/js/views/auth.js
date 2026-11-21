@@ -20,14 +20,14 @@ export async function renderAuth(el) {
   let savedUsername = '';
   let savedPassword = '';
 
-  const loginTab = h('button', { type: 'button', class: 'active', text: 'login', onclick: () => switchMode('login') });
-  const registerTab = h('button', { type: 'button', text: 'register', onclick: () => switchMode('register') });
+  const loginTab = h('button', { type: 'button', class: 'active', text: 'Sign in', onclick: () => switchMode('login') });
+  const registerTab = h('button', { type: 'button', text: 'Create account', onclick: () => switchMode('register') });
   const body = h('div', { id: 'auth-body' });
   const errEl = h('div', { id: 'auth-error', class: 'form-error', role: 'alert' });
 
   const wrap = h('div', { class: 'auth-wrap panel' }, [
     h('img', { class: 'auth-logo', src: '/img/opensync.png', alt: 'OpenSync' }),
-    h('p', { class: 'muted small auth-tagline', text: 'self-hosted game library & save sync · LAN' }),
+    h('p', { class: 'muted small auth-tagline', text: 'LAN game archive and save sync' }),
     h('div', { class: 'auth-tabs', role: 'tablist' }, [loginTab, registerTab]),
     body,
     errEl,
@@ -92,11 +92,11 @@ export async function renderAuth(el) {
     });
 
     const usernameField = h('div', { class: 'field' }, [
-      h('label', { htmlFor: 'auth-username', text: 'username' }),
+      h('label', { htmlFor: 'auth-username', text: 'Username' }),
       uInput,
     ]);
     const passwordField = h('div', { class: 'field' }, [
-      h('label', { htmlFor: 'auth-password', text: 'password' }),
+      h('label', { htmlFor: 'auth-password', text: 'Password' }),
       h('div', { class: 'input-pw-wrap' }, [pInput, pwToggle]),
     ]);
 
@@ -170,7 +170,7 @@ export async function renderAuth(el) {
       });
 
       pfpField = h('div', { class: 'field' }, [
-        h('label', { text: 'profile picture (optional)' }),
+        h('label', { text: 'Profile picture (optional)' }),
         pfpPicker,
       ]);
     }
@@ -178,20 +178,20 @@ export async function renderAuth(el) {
     const submit = h('button', {
       type: 'submit',
       class: 'btn btn-primary btn-block',
-      text: mode === 'login' ? 'sign in' : 'create account',
+      text: mode === 'login' ? 'Sign in' : 'Create account',
     });
 
     const hints = [];
     if (mode === 'register' && !(await getInfo()).has_admin) {
-      hints.push(h('p', { class: 'faint small auth-note', text: 'first account on the server becomes the admin.' }));
+      hints.push(h('p', { class: 'faint small auth-note', text: 'The first account on this server becomes the administrator.' }));
     }
     hints.push(
       h('p', { class: 'faint small auth-switch' }, [
-        mode === 'login' ? 'no account yet? ' : 'already have an account? ',
+        mode === 'login' ? 'No account yet? ' : 'Already have an account? ',
         h('button', {
           type: 'button',
           class: 'link-btn',
-          text: mode === 'login' ? 'create one' : 'sign in',
+          text: mode === 'login' ? 'Create one' : 'Sign in',
           onclick: () => switchMode(mode === 'login' ? 'register' : 'login'),
         }),
       ]),

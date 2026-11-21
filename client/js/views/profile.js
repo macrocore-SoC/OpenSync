@@ -33,13 +33,13 @@ export async function renderProfile(el, state) {
 
   const stats = state.user.stats || {};
   const statGrid = h('div', { class: 'profile-stats' }, [
-    statItem(stats.uploaded, 'games uploaded'),
-    statItem(stats.downloaded, 'games downloaded'),
-    statItem(stats.synced, 'games synced'),
+    statItem(stats.uploaded, 'Games uploaded'),
+    statItem(stats.downloaded, 'Games downloaded'),
+    statItem(stats.synced, 'Saves synced'),
   ]);
 
   const statsPanel = h('div', { class: 'panel' }, [
-    h('h3', { text: 'activity' }),
+    h('h3', { text: 'Activity' }),
     statGrid,
   ]);
 
@@ -47,7 +47,7 @@ export async function renderProfile(el, state) {
   const pfpZoneText = h('p', {
     class: 'muted small',
     style: 'margin:0;',
-    text: 'click to choose or drop a new picture (jpg/png) — saves instantly',
+    text: 'Choose or drop a JPG or PNG image to update your avatar.',
   });
   const pfpDropzone = h('div', {
     class: 'pfp-dropzone',
@@ -97,7 +97,7 @@ export async function renderProfile(el, state) {
     } catch (err) {
       pfpErr.textContent = err.message;
       pfpDropzone.classList.remove('is-busy');
-      pfpZoneText.textContent = 'click to choose or drop a new picture (jpg/png) — saves instantly';
+      pfpZoneText.textContent = 'Choose or drop a JPG or PNG image to update your avatar.';
     } finally {
       busy = false;
     }

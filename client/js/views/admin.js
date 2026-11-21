@@ -30,15 +30,15 @@ export async function renderAdmin(el, state) {
   const { users } = usersRes;
 
   const kpis = h('div', { class: 'kpis' }, [
-    kpi(stats.users, 'users'),
-    kpi(stats.games, 'games'),
-    kpi(stats.downloads, 'downloads'),
-    kpi(humanSize(stats.storage_bytes), 'storage used'),
+    kpi(stats.users, 'Users'),
+    kpi(stats.games, 'Games'),
+    kpi(stats.downloads, 'Downloads'),
+    kpi(humanSize(stats.storage_bytes), 'Storage used'),
   ]);
 
   const usersTable = h('table', { class: 'tbl' }, [
     h('thead', {}, [
-      h('tr', {}, ['id', 'user', 'role', 'games', 'downloads', 'created', 'actions'].map((c) => h('th', { text: c }))),
+      h('tr', {}, ['ID', 'User', 'Role', 'Games', 'Downloads', 'Joined', 'Actions'].map((c) => h('th', { text: c }))),
     ]),
     h('tbody', {}, users.map((u) => userRow(u))),
   ]);
@@ -77,18 +77,18 @@ export async function renderAdmin(el, state) {
   el.replaceChildren(
     h('h1', { class: 'page-title' }, 'admin panel'),
     kpis,
-    h('div', { class: 'section-title' }, ['zip benchmark']),
+    h('div', { class: 'section-title' }, ['Zip benchmark']),
     h('div', { class: 'panel' }, [
       h('div', { class: 'flex' }, [benchBtn]),
       benchResult
         ? benchTable()
-        : h('p', { class: 'faint small', style: 'margin:10px 0 0;', text: 'measures archiver zip throughput on this server (CPU, in-memory).' }),
+        : h('p', { class: 'faint small', style: 'margin:10px 0 0;', text: 'Measures archiver zip throughput on this server in memory.' }),
     ]),
-    h('div', { class: 'section-title' }, ['users']),
+    h('div', { class: 'section-title' }, ['Users']),
     h('div', { class: 'panel' }, [createForm, h('div', { class: 'table-wrap' }, [usersTable])]),
   );
 
-  const recentSec = h('div', { class: 'section-title' }, ['recent downloads']);
+  const recentSec = h('div', { class: 'section-title' }, ['Recent downloads']);
   el.append(recentSec);
   const recentPanel = h('div', { class: 'panel' });
   el.append(recentPanel);

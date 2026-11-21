@@ -1,7 +1,10 @@
-import { api, fmtDate, humanSize, pfpUrl } from '../api.js';
+import { api, fmtDate, humanSize } from '../api.js';
 import { currentRenderSeq, navigate } from '../app.js';
 import { h } from '../ui.js';
 import { showDownloadDialog } from './game.js';
+
+// Lucide "download" icon (ISC License — https://lucide.dev/icons/download)
+const DOWNLOAD_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>';
 
 function monogram(name) {
   const words = String(name || 'G').trim().split(/\s+/).filter(Boolean);
@@ -11,11 +14,9 @@ function monogram(name) {
 
 export async function renderLibrary(el) {
   const seq = currentRenderSeq();
-  const hero = h('div', { class: 'hero' }, [
-    h('h1', { class: 'page-title' }, 'game library'),
-    h('p', { class: 'sub small' }, 'offline games, always on the LAN'),
-  ]);
-  const toolbarHost = h('div', { id: 'lib-toolbar-host' });
+  const titleEl = h('h1', { class: 'page-title' }, 'game library');
+  const controlsHost = h('div', { class: 'lib-header-controls' });
+  const header = h('div', { class: 'lib-header' }, [titleEl, controlsHost]);
   const box = h('div', { id: 'lib' });
   box.replaceChildren(
     h('div', { class: 'muted small flex', style: 'gap:8px;padding:12px 0;' }, [
@@ -23,15 +24,15 @@ export async function renderLibrary(el) {
       h('span', { text: 'fetching library…' }),
     ]),
   );
-  el.replaceChildren(hero, toolbarHost, box);
+  el.replaceChildren(header, box);
 
   const { games } = await api.games.list();
   if (currentRenderSeq() !== seq) return;
   if (!games.length) {
     box.replaceChildren(
       h('div', { class: 'empty' }, [
-        h('p', { text: 'no games on this server yet.' }),
-        h('a', { class: 'btn btn-primary', href: '#/upload', text: 'upload the first one' }),
+        h('p', { text: 'No games on this server yet.' }),
+        h('a', { class: 'btn btn-primary', href: '#/upload', text: 'Upload the first one' }),
       ]),
     );
     return;
@@ -43,7 +44,7 @@ export async function renderLibrary(el) {
   const searchInput = h('input', {
     type: 'text',
     class: 'search-input',
-    placeholder: 'filter by name or uploader…',
+    placeholder: 'Filter by name or uploader…',
     'aria-label': 'Filter games',
   });
   const clearBtn = h('button', {
@@ -61,10 +62,10 @@ export async function renderLibrary(el) {
     },
   });
   const sortSelect = h('select', { class: 'sort-select', 'aria-label': 'Sort games' }, [
-    h('option', { value: 'newest', text: 'newest first' }),
-    h('option', { value: 'name', text: 'name A–Z' }),
-    h('option', { value: 'size', text: 'largest first' }),
-    h('option', { value: 'downloads', text: 'most downloaded' }),
+    h('option', { value: 'newest', text: 'Newest first' }),
+    h('option', { value: 'name', text: 'Name A–Z' }),
+    h('option', { value: 'size', text: 'Largest first' }),
+    h('option', { value: 'downloads', text: 'Most downloaded' }),
   ]);
   const countLabel = h('span', { class: 'lib-count faint small' });
 
@@ -78,11 +79,9 @@ export async function renderLibrary(el) {
     renderGrid();
   });
 
-  toolbarHost.replaceChildren(
-    h('div', { class: 'lib-toolbar' }, [
-      h('div', { class: 'search-wrap' }, [searchInput, clearBtn]),
-      h('div', { class: 'lib-toolbar-right' }, [countLabel, sortSelect]),
-    ]),
+  controlsHost.replaceChildren(
+    h('div', { class: 'search-wrap' }, [searchInput, clearBtn]),
+    h('div', { class: 'lib-toolbar-right' }, [countLabel, sortSelect]),
   );
 
   function renderGrid() {
@@ -107,11 +106,11 @@ export async function renderLibrary(el) {
     if (!sorted.length) {
       box.replaceChildren(
         h('div', { class: 'empty' }, [
-          h('p', { text: `no games match "${searchInput.value.trim()}".` }),
+          h('p', { text: `No games match "${searchInput.value.trim()}".` }),
           h('button', {
             type: 'button',
             class: 'btn btn-sm',
-            text: 'clear filter',
+            text: 'Clear filter',
             onclick: () => {
               query = '';
               searchInput.value = '';
@@ -131,32 +130,163 @@ export async function renderLibrary(el) {
   renderGrid();
 }
 
+function attachSteamTilt(card) {
+  const MAX_TILT_X = 7;
+  const MAX_TILT_Y = 8;
+
+  card.addEventListener('pointermove', (e) => {
+    const rect = card.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const px = ((e.clientX - rect.left) / rect.width) * 2 - 1; // -1..1
+    const py = ((e.clientY - rect.top) / rect.height) * 2 - 1; // -1..1
+    const rx = (-py * MAX_TILT_X).toFixed(2);
+    const ry = (px * MAX_TILT_Y).toFixed(2);
+    const gx = (((e.clientX - rect.left) / rect.width) * 100).toFixed(1);
+    const gy = (((e.clientY - rect.top) / rect.height) * 100).toFixed(1);
+    card.style.setProperty('--rx', `${rx}deg`);
+    card.style.setProperty('--ry', `${ry}deg`);
+    card.style.setProperty('--gx', `${gx}%`);
+    card.style.setProperty('--gy', `${gy}%`);
+  });
+
+  card.addEventListener('pointerleave', () => {
+    card.style.removeProperty('--rx');
+    card.style.removeProperty('--ry');
+    card.style.removeProperty('--gx');
+    card.style.removeProperty('--gy');
+  });
+}
+
+function buildWebCardStats(g, isReady) {
+  if (!isReady) return ['Processing…'];
+  const stats = [humanSize(g.total_size)];
+  const dlCount = Number(g.download_count || 0);
+  stats.push(
+    dlCount > 0
+      ? `${dlCount} ${dlCount === 1 ? 'download' : 'downloads'}`
+      : 'No downloads yet',
+  );
+  if (g.has_overlay) {
+    stats.push('Save synced');
+  }
+  if (g.created_at) {
+    stats.push(`Added ${fmtDate(g.created_at)}`);
+  }
+  if (g.uploader_name) {
+    stats.push(`By @${g.uploader_name}`);
+  }
+  return stats;
+}
+
+function attachStatTicker(card, ticker, stats, intervalMs = 2000) {
+  if (!ticker || !Array.isArray(stats) || stats.length < 2) return;
+
+  let index = 0;
+  let timer = null;
+  let hovered = false;
+  let focused = false;
+
+  const swapTo = (nextIndex, direction = 'up') => {
+    if (nextIndex === index) return;
+    index = nextIndex;
+
+    const outClass = direction === 'down' ? 'is-leaving-down' : 'is-leaving';
+    const inClass = direction === 'down' ? 'is-entering-down' : 'is-entering';
+
+    for (const stale of ticker.querySelectorAll('.is-leaving, .is-leaving-down')) {
+      stale.remove();
+    }
+
+    const current = ticker.querySelector('.card-stat-item');
+    const next = h('span', { class: `card-stat-item ${inClass}`, text: stats[index] });
+    ticker.appendChild(next);
+
+    if (current) {
+      current.classList.remove('is-entering', 'is-entering-down');
+      current.classList.add(outClass);
+      current.setAttribute('aria-hidden', 'true');
+      let removed = false;
+      const cleanup = () => {
+        if (removed) return;
+        removed = true;
+        current.remove();
+      };
+      current.addEventListener('animationend', cleanup, { once: true });
+      window.setTimeout(cleanup, 460);
+    }
+
+    next.addEventListener('animationend', () => {
+      next.classList.remove('is-entering', 'is-entering-down');
+    }, { once: true });
+  };
+
+  const syncTimer = () => {
+    if (hovered || focused) {
+      if (timer !== null) return;
+      timer = window.setInterval(() => {
+        if (!card.isConnected) {
+          window.clearInterval(timer);
+          timer = null;
+          return;
+        }
+        swapTo((index + 1) % stats.length, 'up');
+      }, intervalMs);
+    } else {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      if (index !== 0) {
+        swapTo(0, 'down');
+      }
+    }
+  };
+
+  card.addEventListener('pointerenter', () => {
+    hovered = true;
+    syncTimer();
+  });
+  card.addEventListener('pointerleave', () => {
+    hovered = false;
+    syncTimer();
+  });
+  card.addEventListener('focusin', () => {
+    focused = true;
+    syncTimer();
+  });
+  card.addEventListener('focusout', (e) => {
+    if (!card.contains(e.relatedTarget)) {
+      focused = false;
+      syncTimer();
+    }
+  });
+}
+
 function gameCard(g) {
   const isReady = g.status === 'ready';
-  const size = isReady ? humanSize(g.total_size) : 'processing…';
+  const size = isReady ? humanSize(g.total_size) : 'Processing…';
+  const stats = buildWebCardStats(g, isReady);
 
   const media = g.cover
-    ? h('img', { src: g.cover, alt: g.name, loading: 'lazy' })
+    ? h('img', { class: 'card-cover-img', src: g.cover, alt: g.name, loading: 'lazy' })
     : h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
         h('span', { class: 'card-cover-monogram', text: monogram(g.name) }),
       ]);
 
   const cornerBadge = g.status === 'processing'
-    ? h('span', { class: 'badge badge-processing card-cover-badge', text: 'processing' })
+    ? h('span', { class: 'badge badge-processing card-cover-badge', text: 'Processing' })
     : g.has_overlay
-      ? h('span', { class: 'badge badge-synced card-cover-badge', text: 'synced' })
+      ? h('span', { class: 'badge badge-synced card-cover-badge', text: 'Synced' })
       : null;
-
-  const overlayDesc = g.description?.trim()
-    ? h('p', { class: 'card-cover-desc', text: g.description.trim() })
-    : h('p', { class: 'card-cover-desc card-cover-summary', text: `${size} · ${g.download_count} downloads` });
 
   const downloadAction = isReady
     ? h('a', {
-        class: 'btn btn-primary btn-sm',
+        class: 'btn btn-sm card-glass-dl',
         href: `/api/games/${g.id}/download`,
         download: `${g.name}.zip`,
-        text: '⤓ download',
+        'aria-label': `Download ${g.name}`,
+        title: `Download ${g.name}`,
+        html: DOWNLOAD_SVG,
         onclick: (e) => {
           e.stopPropagation();
           if (g.has_overlay) {
@@ -167,41 +297,35 @@ function gameCard(g) {
       })
     : null;
 
-  const cover = h('div', {
-    class: 'card-cover',
+  const statTicker = h('span', { class: 'card-stat-ticker' }, [
+    h('span', { class: 'card-stat-item', text: stats[0] }),
+  ]);
+
+  const footer = h('div', { class: 'card-glass-footer' }, [
+    h('div', { class: 'card-glass-info' }, [
+      h('a', {
+        class: 'card-glass-title',
+        href: `#/game/${g.id}`,
+        text: g.name,
+        onclick: (e) => e.stopPropagation(),
+      }),
+      h('div', { class: 'card-glass-meta' }, [statTicker]),
+    ]),
+    downloadAction,
+  ]);
+
+  const card = h('article', {
+    class: 'card steam-card',
+    title: `${g.name} — ${size}, added ${fmtDate(g.created_at)}`,
     onclick: () => navigate(`#/game/${g.id}`),
   }, [
     media,
+    h('div', { class: 'card-glass-sheen', 'aria-hidden': 'true' }),
     cornerBadge,
-    h('div', { class: 'card-cover-overlay' }, [
-      overlayDesc,
-      h('div', { class: 'card-cover-actions' }, [
-        h('a', {
-          class: 'btn btn-sm card-open-btn',
-          href: `#/game/${g.id}`,
-          text: 'open →',
-          onclick: (e) => e.stopPropagation(),
-        }),
-        downloadAction,
-      ]),
-    ]),
+    footer,
   ]);
 
-  return h('article', { class: 'card' }, [
-    cover,
-    h('div', { class: 'card-body' }, [
-      h('div', { class: 'card-title' }, [h('a', { href: `#/game/${g.id}`, text: g.name })]),
-      h('div', { class: 'card-meta' }, [
-        h('span', { text: size }),
-        h('span', { class: 'meta-dot', text: '·' }),
-        h('span', { text: `${g.download_count}↓` }),
-        h('span', { class: 'meta-dot', text: '·' }),
-        h('span', { class: 'faint', text: fmtDate(g.created_at) }),
-      ]),
-      h('div', { class: 'card-uploader' }, [
-        g.uploader_pfp ? h('img', { class: 'uploader-pfp', src: pfpUrl(g.uploader_pfp), alt: '' }) : null,
-        h('span', { class: 'faint small', text: `@${g.uploader_name || 'system'}` }),
-      ]),
-    ]),
-  ]);
+  attachSteamTilt(card);
+  attachStatTicker(card, statTicker, stats, 2000);
+  return card;
 }

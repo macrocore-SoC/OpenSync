@@ -64,8 +64,8 @@ function updateBar() {
   bar.querySelector('.uploadbar-name').textContent = `uploading "${session.name}"`;
   bar.querySelector('.progress-bar').style.width = `${pct}%`;
   const parts = [`${session.doneCount}/${session.files.length} files`, `${pct}%`, `${humanSize(session.rate)}/s`];
-  if (session.eta != null) parts.push(`ETA ${fmtEta(session.eta)}`);
-  bar.querySelector('.uploadbar-stats').textContent = parts.join(' · ');
+  if (session.eta != null) parts.push(`${fmtEta(session.eta)} left`);
+  bar.querySelector('.uploadbar-stats').textContent = parts.join(', ');
 }
 
 async function cancelUpload() {
@@ -126,7 +126,7 @@ function buildUploadView() {
     placeholder: 'e.g. Cyber Runner 2077',
   });
   const nameField = h('div', { class: 'field' }, [
-    h('label', { htmlFor: 'up-name', text: 'name *' }),
+    h('label', { htmlFor: 'up-name', text: 'Game name' }),
     nameInput,
   ]);
 
@@ -203,29 +203,29 @@ function buildUploadView() {
   });
 
   const coverField = h('div', { class: 'field' }, [
-    h('label', { text: 'cover image (optional)' }),
+    h('label', { text: 'Cover image (optional)' }),
     coverPicker,
   ]);
 
   const descInput = h('textarea', {
     id: 'up-desc',
-    placeholder: 'short bio, controls, or install notes…',
+    placeholder: 'Short overview, controls, or install notes',
   });
   const descField = h('div', { class: 'field' }, [
-    h('label', { htmlFor: 'up-desc', text: 'description (optional)' }),
+    h('label', { htmlFor: 'up-desc', text: 'Description (optional)' }),
     descInput,
   ]);
 
   const reqs = createReqFields();
   reqs.wrap.querySelector('label')?.remove();
   const reqDetails = h('details', { class: 'req-details' }, [
-    h('summary', { text: 'system requirements (optional)' }),
+    h('summary', { text: 'System requirements (optional)' }),
     h('div', { class: 'req-details-body' }, [reqs.wrap]),
   ]);
 
   const folderEmpty = h('div', { class: 'folder-dropzone-empty' }, [
-    h('div', { class: 'folder-dropzone-title', text: 'drop your game folder here, or click to browse' }),
-    h('div', { class: 'faint small', text: 'folder structure is preserved · chunked resumable upload' }),
+    h('div', { class: 'folder-dropzone-title', text: 'Drop your game folder here, or click to browse' }),
+    h('div', { class: 'faint small', text: 'Preserves folder structure with resumable chunked uploads' }),
   ]);
   const folderSummaryText = h('span', { class: 'folder-summary-text' });
   const previewList = h('div', { class: 'upload-preview-list' });
@@ -290,9 +290,9 @@ function buildUploadView() {
     if (dropped.length) setFiles(dropped);
   });
 
-  const startBtn = h('button', { type: 'button', class: 'btn btn-primary', text: 'start upload', disabled: true });
-  const clearBtn = h('button', { type: 'button', class: 'btn btn-ghost', text: 'clear form', hidden: true, onclick: clearForm });
-  const readinessHint = h('span', { class: 'faint small', text: 'select a folder and enter a name to start' });
+  const startBtn = h('button', { type: 'button', class: 'btn btn-primary', text: 'Upload game', disabled: true });
+  const clearBtn = h('button', { type: 'button', class: 'btn btn-ghost', text: 'Clear form', hidden: true, onclick: clearForm });
+  const readinessHint = h('span', { class: 'faint small', text: 'Choose a folder and enter a game name to begin' });
   const err = h('div', { class: 'form-error', role: 'alert' });
 
   const formPanel = h('div', { class: 'panel' }, [
@@ -364,7 +364,7 @@ function buildUploadView() {
 
     if (files.length) {
       const totalBytes = files.reduce((s, f) => s + f.size, 0);
-      folderSummaryText.textContent = `${files.length} files · ${humanSize(totalBytes)}`;
+      folderSummaryText.textContent = `${files.length} files (${humanSize(totalBytes)})`;
       const previewItems = files.slice(0, 50).map((f) =>
         h('div', { class: 'upload-row-name small faint', text: f.webkitRelativePath }),
       );
@@ -420,7 +420,7 @@ function buildUploadView() {
       createdGame = game;
       if (coverFile) await api.games.cover(game.id, coverFile);
       await runUpload(game, files, nameVal);
-      toast('upload complete — generating manifest');
+      toast('Upload complete. Building file index.');
       resetView();
       navigate(`#/game/${game.id}`);
     } catch (e) {
@@ -506,8 +506,8 @@ function buildUploadView() {
       const eta = rate > 0 ? Math.round(remain / rate) : null;
 
       stats.textContent =
-        `${doneCount} / ${fileList.length} files · ${humanSize(uploaded)} / ${humanSize(total)}` +
-        ` · ${humanSize(rate)}/s${eta != null ? ` · ETA ${fmtEta(eta)}` : ''}`;
+        `${doneCount} of ${fileList.length} files, ${humanSize(uploaded)} of ${humanSize(total)}, ` +
+        `${humanSize(rate)}/s${eta != null ? `, ${fmtEta(eta)} left` : ''}`;
 
       if (session) {
         session.uploaded = uploaded;

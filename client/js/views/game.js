@@ -34,8 +34,8 @@ function updateSyncBar() {
   bar.querySelector('.progress-bar').style.width = `${pct}%`;
   bar.querySelector('.uploadbar-stats').textContent =
     s.phase === 'hashing'
-      ? `hashing ${s.done}/${s.files} files · ${pct}%`
-      : `${s.doneCount}/${s.files} files · ${pct}% · ${humanSize(s.uploaded)} / ${humanSize(s.total)}`;
+      ? `Checking ${s.done} of ${s.files} files (${pct}%)`
+      : `${s.doneCount} of ${s.files} files (${pct}%), ${humanSize(s.uploaded)} of ${humanSize(s.total)}`;
 }
 
 function cancelSync() {
@@ -132,14 +132,14 @@ export function showDownloadDialog(game) {
     ]);
 
   const box = h('div', { class: 'panel pop-dialog modal-box', role: 'dialog', 'aria-modal': 'true' }, [
-    h('h3', { text: `download ${game.name}` }),
-    h('p', { class: 'muted small', style: 'margin:0 0 12px;', text: 'choose which version to download:' }),
+    h('h3', { text: `Download ${game.name}` }),
+    h('p', { class: 'muted small', style: 'margin:0 0 12px;', text: 'Choose which version to download:' }),
     h('div', { class: 'dl-choices' }, [
-      choice('synced game', 'includes your save overlay', `/api/games/${game.id}/download`, true),
-      choice('fresh install', 'clean original files only', `/api/games/${game.id}/download?fresh=1`, false),
+      choice('Synced copy', 'Includes your saved progress', `/api/games/${game.id}/download`, true),
+      choice('Clean install', 'Original archive files only', `/api/games/${game.id}/download?fresh=1`, false),
     ]),
     h('div', { class: 'flex', style: 'justify-content:flex-end;margin-top:14px;' }, [
-      h('button', { type: 'button', class: 'btn btn-ghost', text: 'cancel', onclick: close }),
+      h('button', { type: 'button', class: 'btn btn-ghost', text: 'Cancel', onclick: close }),
     ]),
   ]);
   overlay.appendChild(box);
@@ -189,30 +189,29 @@ export async function renderGame(el) {
       ]);
 
   el.replaceChildren(
-    h('a', { class: 'btn btn-sm btn-ghost', href: '#/', text: '← library' }),
+    h('a', { class: 'btn btn-sm btn-ghost', href: '#/', text: 'Back to library' }),
     h('div', { class: 'game-header', style: 'margin-top:18px;' }, [
       coverEl,
       h('div', { style: 'flex:1;min-width:0;' }, [
         h('div', { class: 'flex-between', style: 'align-items:flex-start;' }, [
           h('h1', { text: game.name }),
-          overlay.has_overlay ? h('span', { class: 'badge badge-synced', text: 'synced' }) : null,
+          overlay.has_overlay ? h('span', { class: 'badge badge-synced', text: 'Synced' }) : null,
         ]),
         h('dl', { class: 'stat-row' }, [
-          h('dt', { text: 'size' }), h('dd', { text: humanSize(game.total_size) }),
-          h('dt', { text: 'uploaded by' }), h('dd', { class: 'dd-uploader' }, [
+          h('dt', { text: 'Size' }), h('dd', { text: humanSize(game.total_size) }),
+          h('dt', { text: 'Uploaded by' }), h('dd', { class: 'dd-uploader' }, [
             game.uploader_pfp ? h('img', { class: 'uploader-pfp', src: pfpUrl(game.uploader_pfp), alt: '' }) : null,
             h('span', { text: `@${game.uploader_name || 'system'}` }),
           ]),
-          h('dt', { text: 'added' }), h('dd', { text: fmtDate(game.created_at) }),
-          h('dt', { text: 'downloads' }), h('dd', { text: String(game.download_count) }),
-          h('dt', { text: 'slug' }), h('dd', {}, [h('span', { class: 'pill', text: game.slug })]),
+          h('dt', { text: 'Added' }), h('dd', { text: fmtDate(game.created_at) }),
+          h('dt', { text: 'Downloads' }), h('dd', { text: String(game.download_count) }),
         ]),
         h('div', { class: 'game-actions' }, [
           h('a', {
             class: 'btn btn-primary',
             href: `/api/games/${game.id}/download`,
             download: `${game.name}.zip`,
-            text: '⤓ download',
+            text: 'Download',
             onclick: (e) => {
               if (overlay.has_overlay) {
                 e.preventDefault();
@@ -223,14 +222,14 @@ export async function renderGame(el) {
           h('button', {
             type: 'button',
             class: 'btn',
-            text: overlay.has_overlay ? '⇄ re-sync my save' : '⇄ sync my save',
+            text: overlay.has_overlay ? 'Update save' : 'Sync save',
             onclick: () => startSync(el, game),
           }),
           overlay.has_overlay
-            ? h('button', { type: 'button', class: 'btn btn-danger', text: 'reset my save', onclick: () => resetOverlay(game) })
+            ? h('button', { type: 'button', class: 'btn btn-danger', text: 'Clear saved progress', onclick: () => resetOverlay(game) })
             : null,
-          canManage ? h('button', { type: 'button', class: 'btn', text: 'edit', onclick: () => renderEdit(el, game) }) : null,
-          canManage ? h('button', { type: 'button', class: 'btn btn-danger', text: 'delete', onclick: () => deleteGame(game) }) : null,
+          canManage ? h('button', { type: 'button', class: 'btn', text: 'Edit details', onclick: () => renderEdit(el, game) }) : null,
+          canManage ? h('button', { type: 'button', class: 'btn btn-danger', text: 'Delete', onclick: () => deleteGame(game) }) : null,
         ]),
       ]),
     ]),
@@ -239,7 +238,7 @@ export async function renderGame(el) {
   if (game.description) {
     el.append(
       h('div', { class: 'panel' }, [
-        h('h3', { text: 'description' }),
+        h('h3', { text: 'About' }),
         h('p', { class: 'muted small', style: 'white-space:pre-wrap;margin:0;', text: game.description }),
       ]),
     );
@@ -247,7 +246,7 @@ export async function renderGame(el) {
   if (game.system_requirements) {
     el.append(
       h('div', { class: 'panel' }, [
-        h('h3', { text: 'system requirements' }),
+        h('h3', { text: 'System requirements' }),
         h('pre', { class: 'codebox small', style: 'margin:0;', text: game.system_requirements }),
       ]),
     );
@@ -302,7 +301,7 @@ function renderProcessing(el, game) {
 }
 
 function renderOverlayStatus(el, overlay) {
-  const sec = h('div', { class: 'section-title' }, ['my save sync']);
+  const sec = h('div', { class: 'section-title' }, ['Saved progress']);
   const panel = h('div', { class: 'panel' });
   el.append(sec, panel);
   if (!overlay.has_overlay) {
@@ -310,17 +309,17 @@ function renderOverlayStatus(el, overlay) {
       h('p', {
         class: 'muted small',
         style: 'margin:0;',
-        text: 'no save overlay stored yet — use "sync my save" above to diff your local game folder.',
+        text: 'No saved progress stored on this server yet. Select Sync save above to upload changes from your local game folder.',
       }),
     );
     return;
   }
   panel.append(
     h('dl', { class: 'stat-row' }, [
-      h('dt', { text: 'overlay files' }), h('dd', { text: String(overlay.files) }),
-      h('dt', { text: 'deleted paths' }), h('dd', { text: String(overlay.deletions) }),
-      h('dt', { text: 'overlay size' }), h('dd', { text: humanSize(overlay.size) }),
-      h('dt', { text: 'last sync' }), h('dd', { text: fmtDateTime(overlay.updated_at) }),
+      h('dt', { text: 'Changed files' }), h('dd', { text: String(overlay.files) }),
+      h('dt', { text: 'Removed files' }), h('dd', { text: String(overlay.deletions) }),
+      h('dt', { text: 'Save size' }), h('dd', { text: humanSize(overlay.size) }),
+      h('dt', { text: 'Last synced' }), h('dd', { text: fmtDateTime(overlay.updated_at) }),
     ]),
   );
 }
@@ -548,7 +547,7 @@ async function runSync(el, game, files) {
       updateSyncBar();
     }
   }
-  p1.textContent = 'hashing done — computing diff';
+  p1.textContent = 'Comparing local files with server';
 
   const clean = new Map(manifest.files.map((f) => [f.path, f]));
   const uploads = [];
@@ -581,7 +580,7 @@ async function runSync(el, game, files) {
   }
 
   if (!uploads.length && !deletions.length) {
-    p1.textContent = 'everything already in sync — nothing to do';
+    p1.textContent = 'Already up to date';
     p2.textContent = '';
     cancelBtn.hidden = true;
     bar.style.width = '100%';
