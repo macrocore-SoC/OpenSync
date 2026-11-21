@@ -62,7 +62,6 @@ adminRouter.get('/stats', async (req, res, next) => {
     const users = database.prepare('SELECT COUNT(*) AS n FROM users').get().n;
     const games = database.prepare('SELECT COUNT(*) AS n FROM games').get().n;
     const downloads = database.prepare('SELECT COUNT(*) AS n FROM downloads').get().n;
-    const comments = database.prepare('SELECT COUNT(*) AS n FROM comments').get().n;
     const storageBytes = (await dirSize(GAMES_ROOT)) + (await dirSize(USERS_ROOT));
     const recent = database
       .prepare(
@@ -72,7 +71,7 @@ adminRouter.get('/stats', async (req, res, next) => {
       )
       .all()
       .map((r) => ({ ...r, user_pfp: r.user_pfp || DEFAULT_PFP_URL }));
-    res.json({ stats: { users, games, downloads, comments, storage_bytes: storageBytes, recent_downloads: recent } });
+    res.json({ stats: { users, games, downloads, storage_bytes: storageBytes, recent_downloads: recent } });
   } catch (err) {
     next(err);
   }

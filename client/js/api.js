@@ -58,10 +58,6 @@ export const api = {
     clearOverlay: (id) => api.del(`/api/games/${id}/overlay`),
     cover: (id, body) => api.raw(`/api/games/${id}/cover`, { body, headers: { 'content-type': body.type } }),
   },
-  comments: {
-    create: (gameId, text, parentId) => api.post(`/api/games/${gameId}/comments`, parentId == null ? { text } : { text, parent_id: parentId }),
-    remove: (id) => api.del(`/api/comments/${id}`),
-  },
   notifications: {
     list: () => api.get('/api/notifications'),
     markRead: (id) => api.post('/api/notifications/read', { id }),

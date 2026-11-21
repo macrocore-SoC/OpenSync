@@ -29,12 +29,13 @@ export function currentRenderSeq() {
   return renderSeq;
 }
 
-const BELL_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+const BELL_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
 
-let notifOpen = false;
 let notifTimer = null;
+let notifDismissCleanup = null;
 
 async function refreshNotifBadge(badge) {
+  if (!badge) return;
   try {
     const { unread } = await api.notifications.list();
     badge.hidden = !unread;
@@ -44,55 +45,74 @@ async function refreshNotifBadge(badge) {
   }
 }
 
+export function startNotifPolling() {
+  clearInterval(notifTimer);
+  notifTimer = setInterval(() => {
+    const badge = document.querySelector('.notif-badge');
+    if (badge) refreshNotifBadge(badge);
+  }, 30000);
+}
+
+export function stopNotifPolling() {
+  clearInterval(notifTimer);
+  notifTimer = null;
+}
+
 function closeNotifDropdown(bell) {
-  const drop = bell.querySelector('.notif-drop');
+  if (notifDismissCleanup) {
+    notifDismissCleanup();
+    notifDismissCleanup = null;
+  }
+  const drop = bell?.querySelector('.notif-drop') || document.querySelector('.notif-drop');
   if (!drop) return;
-  notifOpen = false;
   drop.classList.add('notif-out');
   setTimeout(() => drop.remove(), 140);
 }
 
-async function renderNotifDropdown(bell) {
-  const btn = bell.querySelector('.bell-btn');
-  btn.classList.remove('bell-ring');
-  void btn.offsetWidth;
-  btn.classList.add('bell-ring');
-  if (bell.querySelector('.notif-drop')) {
-    closeNotifDropdown(bell);
-    return;
-  }
-  notifOpen = true;
-  const drop = h('div', { class: 'notif-drop panel' });
+async function populateNotifDropdown(bell, drop) {
   let items;
   try {
     items = await api.notifications.list();
   } catch {
-    items = { notifications: [] };
+    items = { notifications: [], unread: 0 };
   }
+  const badge = bell.querySelector('.notif-badge');
+  if (badge) {
+    badge.hidden = !items.unread;
+    badge.textContent = items.unread > 99 ? '99+' : String(items.unread);
+  }
+
   const head = h('div', { class: 'notif-head flex-between' }, [
     h('span', { class: 'small bold', text: 'notifications' }),
-    h('div', { class: 'flex', style: 'gap:8px;' }, [
+    h('div', { class: 'flex', style: 'gap:6px;' }, [
       items.unread
-        ? h('button', { class: 'btn btn-sm btn-ghost', text: 'mark all read', onclick: async () => {
-            await api.notifications.markAllRead();
-            closeNotifDropdown(bell);
-            refreshNotifBadge(bell.querySelector('.notif-badge'));
-            renderNotifDropdown(bell);
-          } })
+        ? h('button', {
+            type: 'button',
+            class: 'btn btn-sm btn-ghost',
+            text: 'mark all read',
+            onclick: async () => {
+              await api.notifications.markAllRead();
+              await populateNotifDropdown(bell, drop);
+            },
+          })
         : null,
       items.notifications.length
-        ? h('button', { class: 'btn btn-sm btn-ghost', text: 'clear', onclick: async () => {
-            await api.notifications.clearAll();
-            closeNotifDropdown(bell);
-            refreshNotifBadge(bell.querySelector('.notif-badge'));
-            renderNotifDropdown(bell);
-          } })
+        ? h('button', {
+            type: 'button',
+            class: 'btn btn-sm btn-ghost',
+            text: 'clear',
+            onclick: async () => {
+              await api.notifications.clearAll();
+              await populateNotifDropdown(bell, drop);
+            },
+          })
         : null,
     ]),
   ]);
+
   const listEl = h('div', { class: 'notif-list' });
   if (!items.notifications.length) {
-    listEl.append(h('p', { class: 'faint small', style: 'padding:12px;', text: 'no notifications yet.' }));
+    listEl.append(h('p', { class: 'faint small', style: 'padding:14px;margin:0;', text: 'no notifications yet.' }));
   }
   for (const n of items.notifications) {
     const item = h('a', {
@@ -110,13 +130,56 @@ async function renderNotifDropdown(bell) {
     ]);
     listEl.append(item);
   }
-  drop.append(head, listEl);
+  drop.replaceChildren(head, listEl);
+}
+
+async function toggleNotifDropdown(bell) {
+  const btn = bell.querySelector('.bell-btn');
+  btn.classList.remove('bell-ring');
+  void btn.offsetWidth;
+  btn.classList.add('bell-ring');
+
+  if (bell.querySelector('.notif-drop')) {
+    closeNotifDropdown(bell);
+    return;
+  }
+
+  const drop = h('div', { class: 'notif-drop panel' }, [
+    h('div', { class: 'muted small flex', style: 'gap:8px;padding:14px;' }, [
+      h('span', { class: 'spinner' }),
+      h('span', { text: 'loading…' }),
+    ]),
+  ]);
   bell.append(drop);
+
+  const onDocClick = (e) => {
+    if (!bell.contains(e.target)) closeNotifDropdown(bell);
+  };
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') closeNotifDropdown(bell);
+  };
+  setTimeout(() => {
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onKeyDown);
+  }, 0);
+  notifDismissCleanup = () => {
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('keydown', onKeyDown);
+  };
+
+  await populateNotifDropdown(bell, drop);
 }
 
 function renderBell() {
   const bell = h('div', { class: 'bell' }, [
-    h('button', { class: 'bell-btn', html: BELL_SVG, onclick: () => renderNotifDropdown(bell) }),
+    h('button', {
+      type: 'button',
+      class: 'bell-btn',
+      'aria-label': 'Notifications',
+      title: 'Notifications',
+      html: BELL_SVG,
+      onclick: () => toggleNotifDropdown(bell),
+    }),
     h('span', { class: 'notif-badge', hidden: true, text: '0' }),
   ]);
   refreshNotifBadge(bell.querySelector('.notif-badge'));
@@ -125,24 +188,31 @@ function renderBell() {
 
 function renderTopbar() {
   if (!state.user || state.view === 'login') {
+    topbar.hidden = true;
     topbar.style.display = 'none';
     return;
   }
+  topbar.hidden = false;
   topbar.style.display = '';
   topbar.replaceChildren(
     h('a', { class: 'logo', href: '#/', title: 'OpenSync' }, [h('img', { src: '/img/opensync.png', alt: 'OpenSync' })]),
     h('nav', { class: 'nav' }, [
       h('a', { href: '#/', class: state.view === 'library' ? 'active' : '', text: 'library' }),
       h('a', { href: '#/upload', class: state.view === 'upload' ? 'active' : '', text: 'upload' }),
-      h('a', { href: '#/profile', class: state.view === 'profile' ? 'active' : '', text: 'profile' }),
       state.user.role === 'admin' ? h('a', { href: '#/admin', class: state.view === 'admin' ? 'active' : '', text: 'admin' }) : null,
     ]),
     h('div', { class: 'topbar-user' }, [
       renderBell(),
-      state.user.pfp ? h('img', { class: 'topbar-pfp', src: state.user.pfp, alt: '' }) : null,
-      h('span', { text: state.user.username }),
-      state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
-      h('button', { class: 'btn btn-sm btn-ghost', text: 'logout', onclick: () => onLogout() }),
+      h('a', {
+        href: '#/profile',
+        title: 'Profile',
+        class: `topbar-profile-link ${state.view === 'profile' ? 'active' : ''}`,
+      }, [
+        state.user.pfp ? h('img', { class: 'topbar-pfp', src: state.user.pfp, alt: '' }) : null,
+        h('span', { text: state.user.username }),
+        state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
+      ]),
+      h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'logout', onclick: () => onLogout() }),
     ]),
   );
 }
@@ -155,32 +225,52 @@ async function onLogout() {
   } catch {
     /* ignore */
   }
+  stopNotifPolling();
   state.user = null;
   navigate('#/login');
 }
 
-function route() {
-  const found = routes.find((r) => r.match());
-  const seq = ++renderSeq;
-  state.view = found.view;
-  document.querySelector('.notif-drop')?.remove();
-  notifOpen = false;
-  viewEl.replaceChildren(h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [h('span', { class: 'spinner' }), h('span', { text: 'loading…' })]));
-  renderTopbar();
+export function syncGlobalBarVisibility() {
   const bar = document.getElementById('uploadbar');
+  if (!bar) return;
   renderUploadBar(bar);
   renderSyncBar(bar);
-  if (bar) bar.hidden = !(uploadProgress() || syncProgress());
+  const up = uploadProgress();
+  const sy = syncProgress();
+  const showUp = Boolean(up && location.hash !== '#/upload');
+  const showSy = Boolean(sy && location.hash !== `#/game/${sy.gameId}`);
+  bar.hidden = !(showUp || showSy);
+}
+
+function route() {
+  const found = routes.find((r) => r.match());
+  ++renderSeq;
+  state.view = found.view;
+  if (notifDismissCleanup) {
+    notifDismissCleanup();
+    notifDismissCleanup = null;
+  }
+  document.querySelector('.notif-drop')?.remove();
+  viewEl.replaceChildren(
+    h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [
+      h('span', { class: 'spinner' }),
+      h('span', { text: 'loading…' }),
+    ]),
+  );
+  renderTopbar();
+  syncGlobalBarVisibility();
   viewEl.classList.remove('view-switch');
   void viewEl.offsetWidth;
   viewEl.classList.add('view-switch');
   found
     .render(viewEl, state)
     .catch((err) => {
-      viewEl.replaceChildren(h('div', { class: 'panel' }, [
-        h('h2', { text: 'error' }),
-        h('pre', { class: 'codebox', text: err.message || String(err) }),
-      ]));
+      viewEl.replaceChildren(
+        h('div', { class: 'panel' }, [
+          h('h2', { text: 'error' }),
+          h('pre', { class: 'codebox', text: err.message || String(err) }),
+        ]),
+      );
     });
 }
 
@@ -198,17 +288,11 @@ async function init() {
   } catch {
     state.user = null;
   }
-  if (!state.user && !(location.hash === '#/login')) {
+  if (!state.user && location.hash !== '#/login') {
     location.hash = '#/login';
   }
   route();
-  if (state.user) {
-    clearInterval(notifTimer);
-    notifTimer = setInterval(() => {
-      const badge = document.querySelector('.notif-badge');
-      if (badge) refreshNotifBadge(badge);
-    }, 30000);
-  }
+  if (state.user) startNotifPolling();
 }
 
 window.addEventListener('DOMContentLoaded', init);

@@ -17,7 +17,6 @@ export const SECRET_PATH = path.join(STORAGE_ROOT, 'server-secret');
 export const SECRET = process.env.OPENSYNC_SECRET || null;
 
 export const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
-export const MAX_COMMENT_LENGTH = 5000;
 export const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const COOKIE_NAME = 'ohs';
 

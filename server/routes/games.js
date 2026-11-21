@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CHUNK_SIZE } from '../config.js';
 import { getDb, now, uniqueSlug } from '../db.js';
 import { deleteGame, ensureGameDirs, getManifestProgress, processGame } from '../manifest.js';
-import { loadOverlayInfo } from '../overlay.js';
+import { hasOverlay, loadOverlayInfo } from '../overlay.js';
 import { requireAuth } from '../security.js';
 import { gameCoverPath, gameFilesDir, gameUploadsDir, safeRelPath } from '../storage.js';
 
@@ -55,25 +55,20 @@ function getGame(id) {
 
 gamesRouter.get('/', (req, res) => {
   const rows = getDb().prepare(`${GAME_SELECT} ORDER BY g.created_at DESC`).all();
-  res.json({ games: rows.map(toPublicGame) });
+  res.json({
+    games: rows.map((row) => ({
+      ...toPublicGame(row),
+      has_overlay: hasOverlay(req.user.id, row.id),
+    })),
+  });
 });
 
 gamesRouter.get('/:id', async (req, res, next) => {
   try {
     const game = getGame(req.params.id);
     if (!game) return res.status(404).json({ error: 'game not found' });
-    const comments = getDb()
-      .prepare(
-        `SELECT c.id, c.text, c.created_at, c.user_id, c.parent_id,
-          COALESCE(u.username, 'deleted') AS author,
-          CASE WHEN c.user_id IS NOT NULL AND u.pfp IS NOT NULL THEN '/api/auth/users/' || u.id || '/pfp'
-               WHEN c.user_id IS NOT NULL THEN '/img/blankpfp.jpg' END AS author_pfp
-         FROM comments c LEFT JOIN users u ON u.id = c.user_id
-         WHERE c.game_id = ? ORDER BY c.created_at ASC`,
-      )
-      .all(req.params.id);
     const overlay = await loadOverlayInfo(req.user.id, req.params.id);
-    res.json({ game, comments, overlay });
+    res.json({ game, overlay });
   } catch (err) {
     next(err);
   }

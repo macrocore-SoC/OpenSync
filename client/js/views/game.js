@@ -1,16 +1,22 @@
-import { api, esc, fmtDate, fmtDateTime, humanSize, pfpUrl } from '../api.js';
+import { api, fmtDate, fmtDateTime, humanSize, pfpUrl } from '../api.js';
 import { hashFile } from '../sha256.js';
 import { uploadChunks } from '../chunker.js';
 import { createReqFields } from '../reqfields.js';
 import { confirmDialog, h, toast } from '../ui.js';
-import { state, currentRenderSeq } from '../app.js';
+import { currentRenderSeq, navigate, state, syncGlobalBarVisibility } from '../app.js';
 
 let syncSession = null;
 let syncBarHost = null;
 
+function monogram(name) {
+  const words = String(name || 'G').trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return String(name || 'G').trim().slice(0, 2).toUpperCase();
+}
+
 function endSync() {
   syncSession = null;
-  if (syncBarHost) renderSyncBar(syncBarHost);
+  syncGlobalBarVisibility();
 }
 
 function updateSyncBar() {
@@ -51,7 +57,7 @@ export function renderSyncBar(host) {
     sub = h('div', { class: 'ub-sync' });
     host.appendChild(sub);
   }
-  if (!syncSession) {
+  if (!syncSession || location.hash === `#/game/${syncSession.gameId}`) {
     sub.hidden = true;
     return;
   }
@@ -59,10 +65,10 @@ export function renderSyncBar(host) {
   sub.replaceChildren(
     h('div', { class: 'uploadbar' }, [
       h('div', { class: 'flex uploadbar-head' }, [
-        h('span', { class: 'uploadbar-name', text: `syncing "${syncSession.name}"` }),
+        h('a', { class: 'uploadbar-name', href: `#/game/${syncSession.gameId}`, text: `syncing "${syncSession.name}"` }),
         h('div', { class: 'uploadbar-right' }, [
           h('span', { class: 'uploadbar-stats' }),
-          h('button', { class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync }),
+          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync }),
         ]),
       ]),
       h('div', { class: 'progress' }, [h('div', { class: 'progress-bar' })]),
@@ -71,13 +77,86 @@ export function renderSyncBar(host) {
   updateSyncBar();
 }
 
+function openCoverLightbox(src, title) {
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  const overlay = h('div', {
+    class: 'modal-overlay cover-lightbox',
+    onclick: (e) => {
+      if (e.target === overlay) close();
+    },
+  }, [
+    h('div', { class: 'cover-lightbox-frame pop-dialog' }, [
+      h('img', { src, alt: title }),
+      h('button', {
+        type: 'button',
+        class: 'btn btn-sm cover-lightbox-close',
+        text: '✕',
+        'aria-label': 'Close cover preview',
+        onclick: close,
+      }),
+    ]),
+  ]);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onKey);
+}
+
+export function showDownloadDialog(game) {
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  const overlay = h('div', {
+    class: 'modal-overlay',
+    onclick: (e) => {
+      if (e.target === overlay) close();
+    },
+  });
+  const choice = (label, hint, href, primary) =>
+    h('a', {
+      class: `dl-choice ${primary ? 'dl-choice-primary' : ''}`,
+      href,
+      download: `${game.name}.zip`,
+      onclick: close,
+    }, [
+      h('span', { class: 'dl-choice-title', text: label }),
+      h('span', { class: 'dl-choice-hint small', text: hint }),
+    ]);
+
+  const box = h('div', { class: 'panel pop-dialog modal-box', role: 'dialog', 'aria-modal': 'true' }, [
+    h('h3', { text: `download ${game.name}` }),
+    h('p', { class: 'muted small', style: 'margin:0 0 12px;', text: 'choose which version to download:' }),
+    h('div', { class: 'dl-choices' }, [
+      choice('synced game', 'includes your save overlay', `/api/games/${game.id}/download`, true),
+      choice('fresh install', 'clean original files only', `/api/games/${game.id}/download?fresh=1`, false),
+    ]),
+    h('div', { class: 'flex', style: 'justify-content:flex-end;margin-top:14px;' }, [
+      h('button', { type: 'button', class: 'btn btn-ghost', text: 'cancel', onclick: close }),
+    ]),
+  ]);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onKey);
+}
+
 export async function renderGame(el) {
   const id = location.hash.split('/')[2];
   const seq = currentRenderSeq();
-  const box = h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [h('span', { class: 'spinner' }), h('span', { text: 'loading…' })]);
+  const box = h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [
+    h('span', { class: 'spinner' }),
+    h('span', { text: 'loading…' }),
+  ]);
   el.replaceChildren(box);
 
-  const { game, comments, overlay } = await api.games.get(id);
+  const { game, overlay } = await api.games.get(id);
   if (currentRenderSeq() !== seq) return;
   const canManage = state.user.role === 'admin' || game.uploaded_by === state.user.id;
 
@@ -86,25 +165,43 @@ export async function renderGame(el) {
     return;
   }
 
+  const coverEl = game.cover
+    ? h('div', {
+        class: 'game-cover-lg has-cover',
+        role: 'button',
+        tabIndex: 0,
+        title: 'Click to expand cover',
+        onclick: () => openCoverLightbox(game.cover, game.name),
+        onkeydown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openCoverLightbox(game.cover, game.name);
+          }
+        },
+      }, [
+        h('img', { src: game.cover, alt: game.name }),
+        h('span', { class: 'cover-expand-hint', text: 'expand' }),
+      ])
+    : h('div', { class: 'game-cover-lg' }, [
+        h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
+          h('span', { class: 'card-cover-monogram', text: monogram(game.name) }),
+        ]),
+      ]);
+
   el.replaceChildren(
     h('a', { class: 'btn btn-sm btn-ghost', href: '#/', text: '← library' }),
     h('div', { class: 'game-header', style: 'margin-top:18px;' }, [
-      game.cover
-        ? h('div', { class: 'game-cover-lg' }, [h('img', { src: game.cover, alt: game.name })])
-        : h('div', { class: 'game-cover-lg' }, [h('span', { text: '▢' })]),
-      h('div', { style: 'flex:1;' }, [
-        h('div', { class: 'flex-between' }, [
+      coverEl,
+      h('div', { style: 'flex:1;min-width:0;' }, [
+        h('div', { class: 'flex-between', style: 'align-items:flex-start;' }, [
           h('h1', { text: game.name }),
-          h('div', { class: 'flex', style: 'gap:8px;' }, [
-            h('span', { class: `badge badge-${game.status}`, text: game.status }),
-            overlay.has_overlay ? h('span', { class: 'badge badge-synced', text: 'synced' }) : null,
-          ]),
+          overlay.has_overlay ? h('span', { class: 'badge badge-synced', text: 'synced' }) : null,
         ]),
         h('dl', { class: 'stat-row' }, [
           h('dt', { text: 'size' }), h('dd', { text: humanSize(game.total_size) }),
           h('dt', { text: 'uploaded by' }), h('dd', { class: 'dd-uploader' }, [
             game.uploader_pfp ? h('img', { class: 'uploader-pfp', src: pfpUrl(game.uploader_pfp), alt: '' }) : null,
-            h('span', { text: `@${game.uploader_name || 'system'}` })
+            h('span', { text: `@${game.uploader_name || 'system'}` }),
           ]),
           h('dt', { text: 'added' }), h('dd', { text: fmtDate(game.created_at) }),
           h('dt', { text: 'downloads' }), h('dd', { text: String(game.download_count) }),
@@ -123,59 +220,40 @@ export async function renderGame(el) {
               }
             },
           }),
-          h('button', { class: 'btn', text: overlay.has_overlay ? '⇄ re-sync my save' : '⇄ sync my save', onclick: () => startSync(el, game, overlay) }),
+          h('button', {
+            type: 'button',
+            class: 'btn',
+            text: overlay.has_overlay ? '⇄ re-sync my save' : '⇄ sync my save',
+            onclick: () => startSync(el, game),
+          }),
           overlay.has_overlay
-            ? h('button', { class: 'btn btn-danger', text: 'reset my save', onclick: () => resetOverlay(game) })
+            ? h('button', { type: 'button', class: 'btn btn-danger', text: 'reset my save', onclick: () => resetOverlay(game) })
             : null,
-          canManage ? h('button', { class: 'btn', text: 'edit', onclick: () => renderEdit(el, game) }) : null,
-          canManage ? h('button', { class: 'btn btn-danger', text: 'delete', onclick: () => deleteGame(game) }) : null,
+          canManage ? h('button', { type: 'button', class: 'btn', text: 'edit', onclick: () => renderEdit(el, game) }) : null,
+          canManage ? h('button', { type: 'button', class: 'btn btn-danger', text: 'delete', onclick: () => deleteGame(game) }) : null,
         ]),
       ]),
     ]),
   );
 
   if (game.description) {
-    el.append(h('div', { class: 'panel' }, [
-      h('h3', { text: 'description' }),
-      h('p', { class: 'muted small', style: 'white-space:pre-wrap;' }, [esc(game.description)]),
-    ]));
+    el.append(
+      h('div', { class: 'panel' }, [
+        h('h3', { text: 'description' }),
+        h('p', { class: 'muted small', style: 'white-space:pre-wrap;margin:0;', text: game.description }),
+      ]),
+    );
   }
   if (game.system_requirements) {
-    el.append(h('div', { class: 'panel' }, [
-      h('h3', { text: 'system requirements' }),
-      h('pre', { class: 'codebox small', text: game.system_requirements }),
-    ]));
+    el.append(
+      h('div', { class: 'panel' }, [
+        h('h3', { text: 'system requirements' }),
+        h('pre', { class: 'codebox small', style: 'margin:0;', text: game.system_requirements }),
+      ]),
+    );
   }
 
   renderOverlayStatus(el, overlay);
-  renderComments(el, game, comments);
-}
-
-function showDownloadDialog(game) {
-  const overlay = h('div', {
-    class: 'modal-overlay',
-    style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:900;',
-  });
-  const btn = (label, href) =>
-    h('a', {
-      class: 'btn btn-primary',
-      href,
-      download: `${game.name}.zip`,
-      text: label,
-      style: 'display:flex;justify-content:center;margin:6px 0;',
-      onclick: () => overlay.remove(),
-    });
-  const box = h('div', { class: 'panel pop-dialog', style: 'max-width:420px;width:90%;background:var(--panel-2);' }, [
-    h('h3', { text: `download ${game.name}` }),
-    h('p', { class: 'muted small', text: 'choose what to download:' }),
-    btn('fresh install', `/api/games/${game.id}/download?fresh=1`),
-    btn('synced game', `/api/games/${game.id}/download`),
-    h('div', { class: 'flex', style: 'justify-content:flex-end;margin-top:10px;' }, [
-      h('button', { class: 'btn btn-ghost', text: 'cancel', onclick: () => overlay.remove() }),
-    ]),
-  ]);
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
 }
 
 function renderProcessing(el, game) {
@@ -228,7 +306,13 @@ function renderOverlayStatus(el, overlay) {
   const panel = h('div', { class: 'panel' });
   el.append(sec, panel);
   if (!overlay.has_overlay) {
-    panel.append(h('p', { class: 'muted small' }, 'no save overlay stored on this server for you yet.'));
+    panel.append(
+      h('p', {
+        class: 'muted small',
+        style: 'margin:0;',
+        text: 'no save overlay stored yet — use "sync my save" above to diff your local game folder.',
+      }),
+    );
     return;
   }
   panel.append(
@@ -241,320 +325,152 @@ function renderOverlayStatus(el, overlay) {
   );
 }
 
-let cachedUsers = null;
-async function getUsers() {
-  if (!cachedUsers) cachedUsers = await api.users().then((r) => r.users);
-  return cachedUsers;
-}
-
-function attachMentionPicker(input) {
-  let drop = null;
-  let list = [];
-  let selected = 0;
-  let tok = null;
-
-  function hide() {
-    drop?.remove();
-    drop = null;
-    list = [];
-    tok = null;
-  }
-
-  function currentToken() {
-    const v = input.value;
-    const caret = input.selectionStart ?? v.length;
-    const before = v.slice(0, caret);
-    const lastAt = before.lastIndexOf('@');
-    if (lastAt === -1) return null;
-    const tail = before.slice(lastAt);
-    if (/\s/.test(tail.slice(1))) return null;
-    return { start: lastAt, end: caret, token: tail.slice(1) };
-  }
-
-  function pick(user) {
-    const t = tok;
-    hide();
-    if (!t) return;
-    input.value = input.value.slice(0, t.start) + `@${user.username} ` + input.value.slice(t.end);
-    const caret = t.start + user.username.length + 2;
-    input.focus();
-    input.setSelectionRange(caret, caret);
-  }
-
-  async function update() {
-    const t = currentToken();
-    if (!t) { hide(); return; }
-    tok = t;
-    if (!list.length) list = await getUsers().catch(() => []);
-    const q = t.token.toLowerCase();
-    const matches = q
-      ? list.filter((u) => u.username.toLowerCase().startsWith(q) || u.username.toLowerCase().includes(q))
-      : list;
-    const shown = matches.slice(0, 8);
-    if (!shown.length) { hide(); return; }
-    if (!drop) {
-      drop = h('div', { class: 'mention-drop panel' });
-      document.body.append(drop);
-    }
-    const rect = input.getBoundingClientRect();
-    drop.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - 280))}px`;
-    drop.style.top = `${rect.bottom + 4}px`;
-    selected = Math.min(selected, shown.length - 1);
-    drop.replaceChildren(...shown.map((u, i) => h('button', {
-      class: `mention-item ${i === selected ? 'mention-sel' : ''}`,
-      onpointerdown: (e) => { e.preventDefault(); pick(u); },
-      onclick: () => pick(u),
-    }, [
-      u.pfp ? h('img', { class: 'mention-pfp', src: pfpUrl(u.pfp), alt: '' }) : h('span', { class: 'mention-pfp mention-pfp-empty' }),
-      h('span', { text: `@${u.username}` }),
-    ])));
-  }
-
-  input.addEventListener('input', update);
-  input.addEventListener('keydown', (e) => {
-    if (!drop) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); selected = Math.min(selected + 1, list.length - 1); update(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); selected = Math.max(selected - 1, 0); update(); }
-    else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); const btn = drop.querySelector('.mention-sel'); if (btn) btn.click(); }
-    else if (e.key === 'Escape') { e.preventDefault(); hide(); }
-  });
-  document.addEventListener('click', (e) => {
-    if (drop && !drop.contains(e.target)) hide();
-  });
-  input.addEventListener('blur', () => setTimeout(() => { if (drop && !document.activeElement?.closest('.mention-drop')) hide(); }, 120));
-}
-
-function renderComments(el, game, comments) {
-  const sec = h('div', { class: 'section-title' }, ['comments']);
-  el.append(sec);
-
-  const input = h('textarea', { rows: 1, placeholder: 'write a comment…' });
-  const submit = h('button', { class: 'btn btn-primary btn-sm', text: 'post', disabled: true });
-  const hint = h('span', { class: 'composer-hint', text: 'enter to post · @ to mention' });
-  const composerBody = h('div', { class: 'composer-body' }, [
-    h('div', { class: 'composer-input-wrap' }, [input]),
-    h('div', { class: 'composer-footer' }, [hint, submit]),
-  ]);
-  const avatar = state.user.pfp
-    ? h('img', { class: 'composer-avatar', src: state.user.pfp, alt: '' })
-    : h('span', { class: 'composer-avatar composer-avatar-empty' });
-  el.append(h('div', { class: 'panel' }, [h('div', { class: 'composer' }, [avatar, composerBody])]));
-
-  const grow = () => {
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
-    submit.disabled = !input.value.trim();
-  };
-  input.addEventListener('input', grow);
-
-  const list = h('div', { class: 'panel', style: 'padding-top:4px;' });
-  el.append(list);
-
-  let data = comments;
-
-  async function reload() {
-    try {
-      const fresh = await api.games.get(game.id);
-      data = fresh.comments;
-      refresh();
-    } catch {
-      /* keep current list */
-    }
-  }
-
-  const children = new Map();
-
-  function renderThread(c, depth) {
-    const replies = (children.get(c.id) || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return h('div', { class: 'comment-thread' }, [
-      commentEl(c),
-      replies.length
-        ? h('div', {
-            class: 'comment-replies',
-            style: depth >= 6 ? 'margin-left:8px;padding-left:8px;border-left:none;' : '',
-          }, replies.map((r) => renderThread(r, depth + 1)))
-        : null,
-    ]);
-  }
-
-  function refresh() {
-    const top = data.filter((c) => c.parent_id == null);
-    if (!top.length) {
-      list.replaceChildren(h('p', { class: 'faint small', text: 'no comments yet.' }));
-      return;
-    }
-    const byId = new Map(data.map((c) => [c.id, c]));
-    children.clear();
-    for (const c of data) {
-      if (c.parent_id == null) continue;
-      if (!byId.has(c.parent_id)) continue;
-      if (!children.has(c.parent_id)) children.set(c.parent_id, []);
-      children.get(c.parent_id).push(c);
-    }
-    list.replaceChildren(...top.map((c) => renderThread(c, 0)));
-  }
-
-  function replyBox(parentId) {
-    const rinput = h('input', { type: 'text', placeholder: 'reply…' });
-    const rsubmit = h('button', { class: 'btn btn-primary btn-sm', text: 'post' });
-    const rbox = h('div', { class: 'reply-form' }, [h('div', { class: 'reply-input-wrap' }, [rinput]), rsubmit]);
-    attachMentionPicker(rinput);
-    rsubmit.onclick = async () => {
-      if (!rinput.value.trim()) return;
-      try {
-        await api.comments.create(game.id, rinput.value, parentId);
-        toast('reply posted');
-        rbox.remove();
-        reload();
-      } catch (e) {
-        toast(e.message, 'error');
-      }
-    };
-    rinput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') rsubmit.click();
-    });
-    rinput.focus();
-    return rbox;
-  }
-
-  function commentEl(c) {
-    const canDelete = state.user.role === 'admin' || c.user_id === state.user.id;
-    const pfp = c.author_pfp ? h('img', { class: 'comment-pfp', src: pfpUrl(c.author_pfp), alt: '' }) : h('span', { class: 'comment-pfp comment-pfp-empty' });
-    const body = h('div', { style: 'flex:1;' }, [
-      h('div', { class: 'flex', style: 'gap:8px;' }, [
-        h('span', { class: 'comment-author', text: `@${c.author}` }),
-        h('span', { class: 'comment-meta', text: fmtDateTime(c.created_at) }),
-      ]),
-      h('div', { class: 'comment-text small', text: c.text }),
-      h('div', { class: 'flex', style: 'gap:8px;margin-top:4px;' }, [
-        h('button', {
-          class: 'btn btn-sm btn-ghost reply-btn',
-          text: '↩ reply',
-          onclick: () => {
-            const existing = body.querySelector('.reply-form');
-            if (existing) { existing.remove(); return; }
-            body.append(replyBox(c.id));
-          },
-        }),
-      ]),
-    ]);
-    return h('div', { class: 'comment' }, [
-      pfp,
-      body,
-      canDelete
-        ? h('button', { class: 'btn btn-sm btn-ghost btn-danger', text: '✕', onclick: async () => {
-            await api.comments.remove(c.id);
-            toast('comment deleted');
-            reload();
-          } })
-        : null,
-    ]);
-  }
-
-  attachMentionPicker(input);
-  submit.onclick = async () => {
-    if (!input.value.trim()) return;
-    try {
-      const { comment } = await api.comments.create(game.id, input.value);
-      data.push(comment);
-      input.value = '';
-      input.style.height = '';
-      submit.disabled = true;
-      refresh();
-      reload();
-    } catch (e) {
-      toast(e.message, 'error');
-    }
-  };
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit.click();
-    }
-  });
-
-  refresh();
-}
-
 function renderEdit(el, game) {
-  const name = h('div', { class: 'field' }, [h('label', { text: 'name' }), h('input', { type: 'text', value: game.name })]);
-  const desc = h('div', { class: 'field' }, [h('label', { text: 'description (optional)' }), h('textarea', {}, game.description || '')]);
+  const existing = el.querySelector('#edit-game-panel');
+  if (existing) {
+    existing.remove();
+    return;
+  }
+
+  let coverFile = null;
+  const nameInput = h('input', { type: 'text', value: game.name });
+  const name = h('div', { class: 'field' }, [h('label', { text: 'name' }), nameInput]);
+  const descInput = h('textarea', {}, game.description || '');
+  const desc = h('div', { class: 'field' }, [h('label', { text: 'description (optional)' }), descInput]);
+
   const reqs = createReqFields(game.system_requirements || '');
-  const cover = h('div', { class: 'field' }, [
-    h('label', { text: 'cover image (optional, jpg/png)' }),
-    h('div', { class: 'cover-picker' }, [
-      h('img', { class: 'cover-preview', alt: '', hidden: true }),
-      h('input', { type: 'file', accept: 'image/jpeg,image/png', style: 'display:none' }),
-      h('button', { class: 'btn btn-ghost btn-sm', text: 'choose image' }),
-      h('span', { class: 'muted small', text: 'or drop the artwork here' }),
-    ]),
+  reqs.wrap.querySelector('label')?.remove();
+  const reqDetails = h('details', { class: 'req-details', open: Boolean(game.system_requirements) }, [
+    h('summary', { text: 'system requirements (optional)' }),
+    h('div', { class: 'req-details-body' }, [reqs.wrap]),
   ]);
-  const coverInput = cover.querySelector('input');
-  const coverImg = cover.querySelector('img');
-  const coverPicker = cover.querySelector('.cover-picker');
-  coverPicker.querySelector('button').addEventListener('click', () => coverInput.click());
-  coverInput.addEventListener('change', () => {
-    const f = coverInput.files[0];
-    if (f) {
-      const url = URL.createObjectURL(f);
+
+  const coverInput = h('input', { type: 'file', accept: 'image/jpeg,image/png', style: 'display:none' });
+  const coverImg = h('img', {
+    class: 'cover-preview',
+    alt: '',
+    src: game.cover || '',
+    hidden: !game.cover,
+  });
+  const coverHint = h('span', { class: 'muted small', text: game.cover ? 'click or drop to replace cover' : 'click to choose or drop jpg/png' });
+  const coverPicker = h('div', {
+    class: 'cover-picker',
+    role: 'button',
+    tabIndex: 0,
+    onclick: () => coverInput.click(),
+    onkeydown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        coverInput.click();
+      }
+    },
+  }, [coverImg, coverHint, coverInput]);
+
+  function setCoverFile(file) {
+    coverFile = file || null;
+    if (coverFile) {
+      const url = URL.createObjectURL(coverFile);
       coverImg.onload = () => URL.revokeObjectURL(url);
       coverImg.src = url;
       coverImg.hidden = false;
+      coverHint.textContent = coverFile.name;
     }
+  }
+
+  coverInput.addEventListener('change', () => {
+    if (coverInput.files[0]) setCoverFile(coverInput.files[0]);
+  });
+  let coverDragDepth = 0;
+  coverPicker.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    coverDragDepth += 1;
+    coverPicker.classList.add('drag-over');
   });
   coverPicker.addEventListener('dragover', (e) => {
     e.preventDefault();
-    coverPicker.classList.add('drag-over');
+    e.stopPropagation();
   });
-  coverPicker.addEventListener('dragleave', () => coverPicker.classList.remove('drag-over'));
+  coverPicker.addEventListener('dragleave', (e) => {
+    e.stopPropagation();
+    coverDragDepth = Math.max(0, coverDragDepth - 1);
+    if (coverDragDepth === 0) coverPicker.classList.remove('drag-over');
+  });
   coverPicker.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    coverDragDepth = 0;
     coverPicker.classList.remove('drag-over');
-    const f = [...(e.dataTransfer?.files || [])].find((f) => /^image\/(jpeg|png)$/.test(f.type));
-    if (f) {
-      const dt = new DataTransfer();
-      dt.items.add(f);
-      coverInput.files = dt.files;
-      coverInput.dispatchEvent(new Event('change'));
-    }
+    const f = [...(e.dataTransfer?.files || [])].find((file) => /^image\/(jpeg|png)$/.test(file.type));
+    if (f) setCoverFile(f);
+    else toast('cover image must be jpg or png', 'warn');
   });
-  const save = h('button', { class: 'btn btn-primary', text: 'save' });
-  const err = h('div', { class: 'form-error' });
-  const panel = h('div', { class: 'panel' }, [
-    h('h3', { text: 'edit game' }),
-    name, desc, reqs.wrap, cover,
-    h('div', { class: 'flex' }, [save, h('button', { class: 'btn btn-ghost', text: 'cancel', onclick: () => renderGame(el) })]),
+
+  const cover = h('div', { class: 'field' }, [h('label', { text: 'cover image (optional)' }), coverPicker]);
+  const save = h('button', { type: 'submit', class: 'btn btn-primary', text: 'save changes' });
+  const err = h('div', { class: 'form-error', role: 'alert' });
+  const form = h('form', {
+    onsubmit: async (e) => {
+      e.preventDefault();
+      err.textContent = '';
+      save.disabled = true;
+      save.textContent = 'saving…';
+      try {
+        await api.games.patch(game.id, {
+          name: nameInput.value,
+          description: descInput.value,
+          system_requirements: reqs.read(),
+        });
+        if (coverFile) {
+          await api.games.cover(game.id, coverFile);
+        }
+        toast('changes saved');
+        renderGame(el);
+      } catch (ex) {
+        err.textContent = ex.message;
+        save.disabled = false;
+        save.textContent = 'save changes';
+      }
+    },
+  }, [
+    h('div', { class: 'upload-meta-row' }, [name, cover]),
+    desc,
+    reqDetails,
+    h('div', { class: 'flex', style: 'margin-top:14px;' }, [
+      save,
+      h('button', { type: 'button', class: 'btn btn-ghost', text: 'cancel', onclick: () => panel.remove() }),
+    ]),
     err,
+  ]);
+
+  const panel = h('div', { id: 'edit-game-panel', class: 'panel' }, [
+    h('h3', { text: 'edit game' }),
+    form,
   ]);
 
   const anchor = el.querySelector('.game-header');
   anchor.after(panel);
-
-  save.onclick = async () => {
-    try {
-      await api.games.patch(game.id, { name: name.querySelector('input').value, description: desc.querySelector('textarea').value, system_requirements: reqs.read() });
-      const coverInput = cover.querySelector('input');
-      if (coverInput.files[0]) {
-        await api.games.cover(game.id, coverInput.files[0]);
-      }
-      toast('saved');
-      renderGame(el);
-    } catch (e) {
-      err.textContent = e.message;
-    }
-  };
+  nameInput.focus();
 }
 
 async function deleteGame(game) {
-  const ok = await confirmDialog('delete game', `This permanently deletes "${game.name}" and all its files from disk.`, { danger: true });
+  const ok = await confirmDialog(
+    'delete game',
+    `This permanently deletes "${game.name}" and all its files from disk.`,
+    { danger: true, confirmText: 'Delete' },
+  );
   if (!ok) return;
   await api.games.remove(game.id);
   toast('game deleted');
-  location.hash = '#/';
+  navigate('#/');
 }
 
 async function resetOverlay(game) {
-  const ok = await confirmDialog('reset save', 'Remove your save overlay for this game? Your local files are untouched.', { danger: true });
+  const ok = await confirmDialog(
+    'reset save',
+    'Remove your save overlay for this game? Your local files are untouched.',
+    { danger: true, confirmText: 'Reset save' },
+  );
   if (!ok) return;
   await api.games.clearOverlay(game.id);
   toast('save overlay reset');
@@ -563,7 +479,7 @@ async function resetOverlay(game) {
 
 // ---------- sync ----------
 
-async function startSync(el, game, overlay) {
+async function startSync(el, game) {
   if (syncSession) {
     toast('a sync is already running', 'warn');
     return;
@@ -575,6 +491,7 @@ async function startSync(el, game, overlay) {
   picker.onchange = () => {
     const files = [...picker.files];
     picker.remove();
+    if (!files.length) return;
     runSync(el, game, files).catch((e) => {
       endSync();
       toast(e.message || 'sync failed', 'error');
@@ -584,15 +501,16 @@ async function startSync(el, game, overlay) {
 }
 
 async function runSync(el, game, files) {
-  const statusEl = h('div', { class: 'panel' });
-  const p1 = h('p', { class: 'muted small', text: 'hashing local files…' });
-  const p2 = h('p', { class: 'muted small' });
-  const barWrap = h('div', { class: 'progress', style: 'margin:10px 0;' });
+  el.querySelector('#sync-status-panel')?.remove();
+  const statusEl = h('div', { id: 'sync-status-panel', class: 'panel' });
+  const p1 = h('p', { class: 'muted small', style: 'margin:0;', text: 'hashing local files…' });
+  const p2 = h('p', { class: 'faint small', style: 'margin:6px 0 0;' });
+  const barWrap = h('div', { class: 'progress', style: 'margin:10px 0 0;' });
   const bar = h('div', { class: 'progress-bar', style: 'width:0%;' });
   barWrap.appendChild(bar);
-  const cancelBtn = h('button', { class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync });
+  const cancelBtn = h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync });
   statusEl.append(
-    h('div', { class: 'flex', style: 'justify-content:space-between;align-items:center;' }, [p1, cancelBtn]),
+    h('div', { class: 'flex-between' }, [p1, cancelBtn]),
     p2,
     barWrap,
   );
@@ -611,16 +529,17 @@ async function runSync(el, game, files) {
     total: 0,
     doneCount: 0,
   };
-  if (syncBarHost) renderSyncBar(syncBarHost);
+  syncGlobalBarVisibility();
 
   const local = new Map(files.map((f) => [f.webkitRelativePath, f]));
   const manifest = await api.games.manifest(game.id);
 
   let hashed = 0;
-  for (const [path, file] of local) {
-    p2.textContent = `hashing ${path} …`;
+  for (const [relPath, file] of local) {
+    if (syncSession?.cancelled) return;
+    p2.textContent = `hashing ${relPath} …`;
     const hash = await hashFile(file);
-    local.set(path, { file, hash });
+    local.set(relPath, { file, hash });
     hashed += 1;
     const pct = Math.round((hashed / Math.max(1, local.size)) * 100);
     bar.style.width = `${pct}%`;
@@ -635,16 +554,16 @@ async function runSync(el, game, files) {
   const uploads = [];
   const deletions = [];
 
-  for (const [path, entry] of local) {
-    const cleanFile = clean.get(path);
+  for (const [relPath, entry] of local) {
+    const cleanFile = clean.get(relPath);
     if (!cleanFile) {
-      uploads.push({ path, file: entry.file, hash: entry.hash, kind: 'new' });
+      uploads.push({ path: relPath, file: entry.file, hash: entry.hash, kind: 'new' });
     } else if (cleanFile.hash !== entry.hash) {
-      uploads.push({ path, file: entry.file, hash: entry.hash, kind: 'changed' });
+      uploads.push({ path: relPath, file: entry.file, hash: entry.hash, kind: 'changed' });
     }
   }
-  for (const [path, cleanFile] of clean) {
-    if (!local.has(path)) deletions.push(path);
+  for (const [relPath] of clean) {
+    if (!local.has(relPath)) deletions.push(relPath);
   }
 
   if (deletions.length > 0) {
@@ -663,6 +582,8 @@ async function runSync(el, game, files) {
 
   if (!uploads.length && !deletions.length) {
     p1.textContent = 'everything already in sync — nothing to do';
+    p2.textContent = '';
+    cancelBtn.hidden = true;
     bar.style.width = '100%';
     endSync();
     return;
@@ -731,11 +652,17 @@ async function runSync(el, game, files) {
   } finally {
     endSync();
   }
-  p2.textContent = '';
-  p1.textContent = '';
-  statusEl.append(h('div', { class: 'stats-line' }, [
-    h('span', { text: `✓ synced ${uploads.length} files (${humanSize(totalBytes)}), ${deletions.length} deletions` }),
-    h('a', { class: 'btn btn-sm', href: `#/game/${game.id}`, text: 'reload' }),
-  ]));
-  toast('save synced');
+  toast(`save synced (${uploads.length} files, ${humanSize(totalBytes)})`);
+  if (location.hash === `#/game/${game.id}`) {
+    renderGame(el);
+  } else {
+    cancelBtn.hidden = true;
+    p2.textContent = '';
+    p1.textContent = `✓ synced ${uploads.length} files (${humanSize(totalBytes)}), ${deletions.length} deletions`;
+    statusEl.append(
+      h('div', { class: 'stats-line' }, [
+        h('button', { type: 'button', class: 'btn btn-sm', text: 'refresh', onclick: () => renderGame(el) }),
+      ]),
+    );
+  }
 }

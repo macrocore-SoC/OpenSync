@@ -11,7 +11,7 @@ let userA;
 let userB;
 let game;
 
-test('security: setup admin, users, game, comments', async () => {
+test('security: setup admin, users, game', async () => {
   admin = await register(srv.base, 'sec_admin');
   userA = await register(srv.base, 'sec_user_a');
   userB = await register(srv.base, 'sec_user_b');
@@ -48,44 +48,6 @@ test('security: users list and notifications require auth', async () => {
     body: JSON.stringify({ all: true }),
   });
   assert.equal(notifRead.status, 401);
-});
-
-test('security: comment replies are scoped to the same game', async () => {
-  const other = await createGame(srv.base, admin.cookie, 'SecOtherGame', [{ path: 'o.bin', data: 'o' }]);
-  const r = await fetch(`${srv.base}/api/games/${other.id}/comments`, {
-    method: 'POST',
-    headers: { ...headers(userA.cookie), 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'a reply' }),
-  });
-  assert.equal(r.status, 201);
-  const replyId = (await r.json()).comment.id;
-
-  const cross = await fetch(`${srv.base}/api/games/${game.id}/comments`, {
-    method: 'POST',
-    headers: { ...headers(userA.cookie), 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'cross-game reply', parent_id: replyId }),
-  });
-  assert.equal(cross.status, 400);
-
-  const phantom = await fetch(`${srv.base}/api/games/${game.id}/comments`, {
-    method: 'POST',
-    headers: { ...headers(userA.cookie), 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'phantom parent', parent_id: 999999 }),
-  });
-  assert.equal(phantom.status, 400);
-});
-
-test('security: admin can delete anyone\'s comment', async () => {
-  const r = await fetch(`${srv.base}/api/games/${game.id}/comments`, {
-    method: 'POST',
-    headers: { ...headers(userB.cookie), 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'deletable by admin' }),
-  });
-  const { comment } = await r.json();
-  const asUser = await fetch(`${srv.base}/api/comments/${comment.id}`, { method: 'DELETE', headers: headers(userA.cookie) });
-  assert.equal(asUser.status, 403);
-  const asAdmin = await fetch(`${srv.base}/api/comments/${comment.id}`, { method: 'DELETE', headers: headers(admin.cookie) });
-  assert.equal(asAdmin.status, 200);
 });
 
 test('security: notifications are per-user; foreign ids 404', async () => {
@@ -167,22 +129,12 @@ test('security: non-numeric ids are rejected without crashing', async () => {
     '/api/games/abc',
     '/api/games/abc/download',
     '/api/games/abc/manifest',
-    '/api/games/abc/comments',
     '/api/auth/users/abc/pfp',
   ]) {
     const r = await fetch(`${srv.base}${path}`, { headers: headers(userA.cookie) });
     assert.ok([400, 404, 500].includes(r.status), `${path} -> ${r.status}`);
     assert.notEqual(r.status, 500, `${path} must not 500`);
   }
-});
-
-test('security: comment text must be a string (no object/array smuggling)', async () => {
-  const r = await fetch(`${srv.base}/api/games/${game.id}/comments`, {
-    method: 'POST',
-    headers: { ...headers(userA.cookie), 'content-type': 'application/json' },
-    body: JSON.stringify({ text: { evil: true } }),
-  });
-  assert.equal(r.status, 400);
 });
 
 test('security: pfp endpoint rejects non-numeric user ids (traversal guard)', async () => {

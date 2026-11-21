@@ -1,5 +1,3 @@
-import { esc } from './api.js';
-
 /** Tiny hyperscript helper: h('div', {class:'x', onclick: fn}, [children]). */
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -21,30 +19,67 @@ export function h(tag, attrs = {}, ...children) {
 
 export function toast(message, type = 'info') {
   const container = document.getElementById('toasts');
-  const t = h('div', { class: `toast ${type}`, html: esc(message) });
+  if (!container) return;
+  const t = h('div', { class: `toast ${type}`, role: 'status', text: message });
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    t.classList.add('toast-out');
+    setTimeout(() => t.remove(), 180);
+  };
+  t.addEventListener('click', dismiss);
   container.appendChild(t);
-  setTimeout(() => t.remove(), 4000);
+  setTimeout(dismiss, 3800);
 }
 
-export async function confirmDialog(title, message, { danger = false } = {}) {
+export async function confirmDialog(
+  title,
+  message,
+  { danger = false, confirmText = 'Confirm', cancelText = 'Cancel' } = {},
+) {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+
     const overlay = h('div', {
       class: 'modal-overlay',
-      style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:900;',
+      onclick: (e) => {
+        if (e.target === overlay) finish(false);
+      },
     });
-    const box = h('div', { class: 'panel', style: 'max-width:420px;width:90%;background:var(--panel-2);' }, [
+    const cancelBtn = h('button', {
+      type: 'button',
+      class: 'btn btn-ghost',
+      text: cancelText,
+      onclick: () => finish(false),
+    });
+    const confirmBtn = h('button', {
+      type: 'button',
+      class: `btn ${danger ? 'btn-danger' : 'btn-primary'}`,
+      text: confirmText,
+      onclick: () => finish(true),
+    });
+    const box = h('div', { class: 'panel pop-dialog modal-box', role: 'dialog', 'aria-modal': 'true' }, [
       h('h3', { text: title }),
-      h('p', { class: 'muted small', text: message }),
-      h('div', { class: 'flex', style: 'justify-content:flex-end;margin-top:16px;' }, [
-        h('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: () => { overlay.remove(); resolve(false); } }),
-        h('button', {
-          class: `btn ${danger ? 'btn-danger' : 'btn-primary'}`,
-          text: 'Confirm',
-          onclick: () => { overlay.remove(); resolve(true); },
-        }),
-      ]),
+      h('p', { class: 'muted small', style: 'margin:0;', text: message }),
+      h('div', { class: 'flex', style: 'justify-content:flex-end;margin-top:16px;' }, [cancelBtn, confirmBtn]),
     ]);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    (danger ? cancelBtn : confirmBtn).focus();
   });
 }

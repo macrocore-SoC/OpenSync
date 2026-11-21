@@ -12,14 +12,17 @@ function benchTable() {
       h('td', { class: 'muted small', text: r.method }),
       h('td', { text: `${r.mbps} MB/s` }),
       h('td', { class: 'muted small', text: `${r.out_mb} MB` }),
-    ]));
-  return h('table', { class: 'tbl' }, [
-    h('thead', {}, [h('tr', {}, [h('th', { text: 'zip method' }), h('th', { text: 'throughput' }), h('th', { text: 'output (64 MB input)' })])]),
-    h('tbody', {}, rows),
+    ]),
+  );
+  return h('div', { class: 'table-wrap', style: 'margin-top:12px;' }, [
+    h('table', { class: 'tbl' }, [
+      h('thead', {}, [h('tr', {}, [h('th', { text: 'zip method' }), h('th', { text: 'throughput' }), h('th', { text: 'output (64 MB input)' })])]),
+      h('tbody', {}, rows),
+    ]),
   ]);
 }
 
-export async function renderAdmin(el) {
+export async function renderAdmin(el, state) {
   const seq = currentRenderSeq();
   const [statsRes, usersRes] = await Promise.all([api.admin.stats(), api.admin.users()]);
   if (currentRenderSeq() !== seq) return;
@@ -30,57 +33,59 @@ export async function renderAdmin(el) {
     kpi(stats.users, 'users'),
     kpi(stats.games, 'games'),
     kpi(stats.downloads, 'downloads'),
-    kpi(stats.comments, 'comments'),
     kpi(humanSize(stats.storage_bytes), 'storage used'),
   ]);
 
-  const usersTable = h('table', { class: 'tbl' });
-  usersTable.append(
+  const usersTable = h('table', { class: 'tbl' }, [
     h('thead', {}, [
-      h('tr', {}, ['id', 'username', 'role', 'games', 'downloads', 'created', 'actions'].map((c) => h('th', { text: c }))),
+      h('tr', {}, ['id', 'user', 'role', 'games', 'downloads', 'created', 'actions'].map((c) => h('th', { text: c }))),
     ]),
     h('tbody', {}, users.map((u) => userRow(u))),
-  );
-
-  const createForm = h('div', { class: 'flex' }, [
-    h('input', { type: 'text', id: 'nu-user', placeholder: 'username', style: 'flex:1;background:var(--bg-soft);border:1px solid var(--border);color:var(--fg);font-family:var(--mono);padding:8px;border-radius:var(--radius);' }),
-    h('input', { type: 'password', id: 'nu-pass', placeholder: 'password', style: 'flex:1;background:var(--bg-soft);border:1px solid var(--border);color:var(--fg);font-family:var(--mono);padding:8px;border-radius:var(--radius);' }),
-    h('button', { class: 'btn btn-sm', text: 'create user', onclick: async () => {
-      const u = document.getElementById('nu-user').value;
-      const p = document.getElementById('nu-pass').value;
-      try {
-        await api.admin.createUser({ username: u, password: p });
-        toast('user created');
-        renderAdmin(document.getElementById('view'));
-      } catch (e) {
-        toast(e.message, 'error');
-      }
-    } }),
   ]);
+
+  const nuUser = h('input', { type: 'text', id: 'nu-user', class: 'admin-input', placeholder: 'username', autocomplete: 'off' });
+  const nuPass = h('input', { type: 'password', id: 'nu-pass', class: 'admin-input', placeholder: 'password (6+ chars)', autocomplete: 'new-password' });
+  const createBtn = h('button', { type: 'submit', class: 'btn btn-sm btn-primary', text: 'create user' });
+  const createForm = h('form', {
+    class: 'admin-create-form',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      createBtn.disabled = true;
+      try {
+        await api.admin.createUser({ username: nuUser.value, password: nuPass.value });
+        toast('user created');
+        renderAdmin(document.getElementById('view'), state);
+      } catch (err) {
+        toast(err.message, 'error');
+        createBtn.disabled = false;
+      }
+    },
+  }, [nuUser, nuPass, createBtn]);
+
+  const benchBtn = h('button', { type: 'button', class: 'btn btn-sm', text: 'run benchmark' });
+  benchBtn.onclick = async () => {
+    benchBtn.disabled = true;
+    benchBtn.textContent = 'benchmarking…';
+    try {
+      benchResult = await api.admin.bench();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+    renderAdmin(document.getElementById('view'), state);
+  };
 
   el.replaceChildren(
     h('h1', { class: 'page-title' }, 'admin panel'),
     kpis,
     h('div', { class: 'section-title' }, ['zip benchmark']),
     h('div', { class: 'panel' }, [
-      (() => {
-        const btn = h('button', { class: 'btn btn-sm', text: 'run benchmark' });
-        btn.onclick = async () => {
-          btn.disabled = true;
-          btn.textContent = 'benchmarking…';
-          try {
-            benchResult = await api.admin.bench();
-          } catch (e) {
-            toast(e.message, 'error');
-          }
-          renderAdmin(document.getElementById('view'));
-        };
-        return h('div', { class: 'flex' }, [btn]);
-      })(),
-      benchResult ? benchTable() : h('p', { class: 'faint small', style: 'padding-top:8px;', text: 'measures archiver zip throughput on this server (CPU, in-memory).' }),
+      h('div', { class: 'flex' }, [benchBtn]),
+      benchResult
+        ? benchTable()
+        : h('p', { class: 'faint small', style: 'margin:10px 0 0;', text: 'measures archiver zip throughput on this server (CPU, in-memory).' }),
     ]),
     h('div', { class: 'section-title' }, ['users']),
-    h('div', { class: 'panel' }, [createForm, usersTable]),
+    h('div', { class: 'panel' }, [createForm, h('div', { class: 'table-wrap' }, [usersTable])]),
   );
 
   const recentSec = h('div', { class: 'section-title' }, ['recent downloads']);
@@ -88,10 +93,9 @@ export async function renderAdmin(el) {
   const recentPanel = h('div', { class: 'panel' });
   el.append(recentPanel);
   if (!stats.recent_downloads.length) {
-    recentPanel.append(h('p', { class: 'faint small', text: 'no downloads yet.' }));
+    recentPanel.append(h('p', { class: 'faint small', style: 'margin:0;', text: 'no downloads yet.' }));
   } else {
-    const table = h('table', { class: 'tbl' });
-    table.append(
+    const table = h('table', { class: 'tbl' }, [
       h('thead', {}, [h('tr', {}, [h('th', { text: 'when' }), h('th', { text: 'user' }), h('th', { text: 'game' })])]),
       h('tbody', {}, stats.recent_downloads.map((r) =>
         h('tr', {}, [
@@ -104,57 +108,76 @@ export async function renderAdmin(el) {
           ]),
           h('td', { text: r.game }),
         ]))),
-    );
-    recentPanel.append(table);
+    ]);
+    recentPanel.append(h('div', { class: 'table-wrap' }, [table]));
   }
 
   function kpi(num, label) {
-    return h('div', { class: 'kpi' }, [h('div', { class: 'num', text: String(num) }), h('div', { class: 'label', text: label })]);
+    return h('div', { class: 'kpi' }, [
+      h('div', { class: 'num', text: String(num) }),
+      h('div', { class: 'label', text: label }),
+    ]);
   }
 
   function userRow(u) {
+    const isSelf = Number(u.id) === Number(state?.user?.id);
     return h('tr', {}, [
       h('td', { class: 'muted small', text: String(u.id) }),
       h('td', {}, [
         h('div', { class: 'cell-user' }, [
           u.pfp ? h('img', { class: 'admin-pfp', src: pfpUrl(u.pfp), alt: '' }) : null,
           h('span', { text: `@${u.username}` }),
-          u.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
         ]),
       ]),
-      h('td', { class: 'muted small', text: u.role }),
+      h('td', {}, [
+        u.role === 'admin'
+          ? h('span', { class: 'badge badge-admin', text: 'admin' })
+          : h('span', { class: 'pill', text: 'user' }),
+      ]),
       h('td', { class: 'muted small', text: String(u.games_count) }),
       h('td', { class: 'muted small', text: String(u.downloads_count) }),
       h('td', { class: 'muted small', text: fmtDateTime(u.created_at) }),
       h('td', {}, [
-        h('button', {
-          class: 'btn btn-sm btn-ghost',
-          text: u.role === 'admin' ? 'demote' : 'promote',
-          onclick: async () => {
-            try {
-              await api.admin.setRole(u.id, u.role === 'admin' ? 'user' : 'admin');
-              toast('role updated');
-              renderAdmin(document.getElementById('view'));
-            } catch (e) {
-              toast(e.message, 'error');
-            }
-          },
-        }),
-        h('button', {
-          class: 'btn btn-sm btn-ghost btn-danger',
-          text: 'delete',
-          onclick: async () => {
-            const ok = await confirmDialog('delete user', `Delete @${u.username}? Their overlays are removed from disk.`, { danger: true });
-            if (!ok) return;
-            try {
-              await api.admin.removeUser(u.id);
-              toast('user deleted');
-              renderAdmin(document.getElementById('view'));
-            } catch (e) {
-              toast(e.message, 'error');
-            }
-          },
-        }),
+        h('div', { class: 'flex', style: 'gap:6px;' }, [
+          h('button', {
+            type: 'button',
+            class: 'btn btn-sm btn-ghost',
+            text: u.role === 'admin' ? 'demote' : 'promote',
+            disabled: isSelf,
+            title: isSelf ? 'Cannot change your own role' : '',
+            onclick: async () => {
+              try {
+                await api.admin.setRole(u.id, u.role === 'admin' ? 'user' : 'admin');
+                toast('role updated');
+                renderAdmin(document.getElementById('view'), state);
+              } catch (e) {
+                toast(e.message, 'error');
+              }
+            },
+          }),
+          h('button', {
+            type: 'button',
+            class: 'btn btn-sm btn-ghost btn-danger',
+            text: 'delete',
+            disabled: isSelf,
+            title: isSelf ? 'Cannot delete your own account here' : '',
+            onclick: async () => {
+              const ok = await confirmDialog(
+                'delete user',
+                `Delete @${u.username}? Their overlays are removed from disk.`,
+                { danger: true, confirmText: 'Delete' },
+              );
+              if (!ok) return;
+              try {
+                await api.admin.removeUser(u.id);
+                toast('user deleted');
+                renderAdmin(document.getElementById('view'), state);
+              } catch (e) {
+                toast(e.message, 'error');
+              }
+            },
+          }),
+        ]),
       ]),
     ]);
   }
@@ -175,7 +198,7 @@ export async function renderAdmin(el) {
       lastSig = sig;
       const nu = document.getElementById('nu-user');
       const saved = nu ? { u: nu.value, p: document.getElementById('nu-pass')?.value ?? '' } : null;
-      await renderAdmin(el);
+      await renderAdmin(el, state);
       if (saved) {
         const u = document.getElementById('nu-user');
         if (u) u.value = saved.u;

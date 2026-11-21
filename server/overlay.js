@@ -45,6 +45,13 @@ export function loadOverlayManifest(userId, gameId) {
   }
 }
 
+export function hasOverlay(userId, gameId) {
+  const overlayManifest = loadOverlayManifest(userId, gameId);
+  if (overlayManifest?.files.length) return true;
+  const deletions = loadDeletions(userId, gameId);
+  return deletions.paths.length > 0;
+}
+
 export async function loadOverlayInfo(userId, gameId) {
   const overlayManifest = loadOverlayManifest(userId, gameId);
   const deletions = loadDeletions(userId, gameId);
