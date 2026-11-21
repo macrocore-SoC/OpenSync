@@ -319,6 +319,11 @@ gamesRouter.post('/:id/upload/complete', async (req, res, next) => {
       reuploadedReady.delete(game.id);
       getDb().prepare('UPDATE games SET status = ? WHERE id = ?').run('processing', game.id);
     }
+    const pending = pendingAutoComplete.get(game.id);
+    if (pending) {
+      clearTimeout(pending);
+      pendingAutoComplete.delete(game.id);
+    }
     processGame(game.id).catch((err) => {
       console.error(`[opensync] manifest generation failed for game ${game.id}:`, err);
       getDb().prepare('UPDATE games SET status = ? WHERE id = ?').run(wasReady ? 'ready' : 'processing', game.id);

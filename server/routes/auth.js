@@ -131,6 +131,32 @@ authRouter.get('/me', (req, res) => {
   res.json({ user: { id: row.id, username: row.username, role: row.role, created_at: row.created_at, pfp: pfpOf(row), stats } });
 });
 
+authRouter.patch('/me', requireAuth, async (req, res, next) => {
+  try {
+    const database = getDb();
+    const cleaned = cleanUsername(req.body?.username);
+    if (!cleaned) {
+      return res.status(400).json({ error: 'username is required' });
+    }
+    if (cleaned.length > MAX_USERNAME_LENGTH) {
+      return res.status(400).json({ error: `username too long (max ${MAX_USERNAME_LENGTH} characters)` });
+    }
+    const norm = normalizeUsername(cleaned);
+    const existing = database.prepare('SELECT id FROM users WHERE username_norm = ? AND id != ?').get(norm, req.user.id);
+    if (existing) return res.status(409).json({ error: 'username already taken' });
+    try {
+      database.prepare('UPDATE users SET username = ?, username_norm = ? WHERE id = ?').run(cleaned, norm, req.user.id);
+    } catch (err) {
+      if (/UNIQUE/i.test(err.message)) return res.status(409).json({ error: 'username already taken' });
+      throw err;
+    }
+    const row = database.prepare('SELECT id, username, role, created_at, pfp FROM users WHERE id = ?').get(req.user.id);
+    res.json({ user: { id: row.id, username: row.username, role: row.role, created_at: row.created_at, pfp: pfpOf(row) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 authRouter.post('/me/pfp', requireAuth, async (req, res, next) => {
   try {
     await setPfp(req, res);

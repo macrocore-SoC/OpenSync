@@ -156,3 +156,38 @@ test('admin delete removes the user storage dir', async () => {
   assert.equal(del.status, 200);
   assert.equal(existsSync(path.join(srv.dir, 'users', String(uid))), false);
 });
+
+test('username can be changed; duplicates and invalid values are rejected', async () => {
+  const me = await register(srv.base, 'rename_me');
+  await register(srv.base, 'rename_target');
+
+  const patchUsername = (cookie, username) =>
+    fetch(`${srv.base}/api/auth/me`, {
+      method: 'PATCH',
+      headers: { ...headers(cookie), 'content-type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+
+  const changed = await patchUsername(me.cookie, 'renamed_me');
+  assert.equal(changed.status, 200);
+  const body = await changed.json();
+  assert.equal(body.user.username, 'renamed_me');
+  assert.equal(body.user.id, me.user.id);
+  assert.equal(body.user.pfp, me.user.pfp);
+  assert.equal('session_version' in body.user, false, 'response must not expose session_version');
+
+  const meRes = await fetch(`${srv.base}/api/auth/me`, { headers: headers(me.cookie) });
+  assert.equal((await meRes.json()).user.username, 'renamed_me');
+
+  const oldLogin = await fetch(`${srv.base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'rename_me', password: 'secret123' }),
+  });
+  assert.equal(oldLogin.status, 401, 'old username must no longer work');
+  assert.equal((await login(srv.base, 'renamed_me')).user.username, 'renamed_me');
+
+  assert.equal((await patchUsername(me.cookie, 'RENAME_TARGET')).status, 409);
+  assert.equal((await patchUsername(me.cookie, '')).status, 400);
+  assert.equal((await patchUsername(me.cookie, '   ')).status, 400);
+});

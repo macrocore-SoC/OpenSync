@@ -39,6 +39,7 @@ export const api = {
     login: (username, password) => api.post('/api/auth/login', { username, password }),
     logout: () => api.post('/api/auth/logout', {}),
     me: () => api.get('/api/auth/me'),
+    updateUsername: (username) => api.patch('/api/auth/me', { username }),
     uploadPfp: (body) => request('PUT', '/api/auth/me/pfp', { body, headers: { 'content-type': body.type } }),
     removePfp: () => request('DELETE', '/api/auth/me/pfp'),
     deleteAccount: () => api.del('/api/auth/me'),

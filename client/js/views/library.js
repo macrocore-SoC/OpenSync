@@ -268,7 +268,7 @@ function gameCard(g) {
   const stats = buildWebCardStats(g, isReady);
 
   const media = g.cover
-    ? h('img', { class: 'card-cover-img', src: g.cover, alt: g.name, loading: 'lazy' })
+    ? h('img', { class: 'card-cover-img', src: g.cover, alt: g.name, loading: 'lazy', decoding: 'async' })
     : h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
         h('span', { class: 'card-cover-monogram', text: monogram(g.name) }),
       ]);

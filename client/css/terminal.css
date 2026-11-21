@@ -690,6 +690,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  contain: layout style paint;
   cursor: pointer;
   transform-style: preserve-3d;
   will-change: transform, box-shadow;
@@ -698,6 +699,10 @@ h3 {
     border-color 0.22s ease,
     box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.38);
+}
+
+body.is-scrolling .card.steam-card {
+  pointer-events: none;
 }
 
 .card.steam-card:hover,

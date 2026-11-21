@@ -142,6 +142,45 @@ export async function renderProfile(el, state) {
     else if (!file) pfpErr.textContent = 'profile picture must be jpg or png';
   });
 
+  const usernameErr = h('div', { class: 'form-error', role: 'alert' });
+  const usernameInput = h('input', {
+    type: 'text',
+    name: 'username',
+    autocomplete: 'username',
+    maxlength: 64,
+    'aria-label': 'username',
+  });
+  usernameInput.value = state.user.username;
+  const usernameSaveBtn = h('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'save' });
+  const usernameForm = h('form', { class: 'flex', style: 'gap:10px;align-items:flex-end;flex-wrap:wrap;' }, [
+    h('div', { class: 'field', style: 'flex:1;min-width:180px;margin-bottom:0;' }, [
+      h('label', { text: 'username' }),
+      usernameInput,
+    ]),
+    usernameSaveBtn,
+  ]);
+  const usernamePanel = h('div', { class: 'panel', id: 'username-panel' }, [
+    h('h3', { text: 'username' }),
+    usernameForm,
+    usernameErr,
+  ]);
+
+  usernameForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    usernameErr.textContent = '';
+    usernameSaveBtn.disabled = true;
+    try {
+      const { user } = await api.auth.updateUsername(usernameInput.value);
+      Object.assign(state.user, user);
+      toast('username saved');
+      usernameSaveBtn.disabled = false;
+      navigate('#/profile');
+    } catch (err) {
+      usernameErr.textContent = err.message;
+      usernameSaveBtn.disabled = false;
+    }
+  });
+
   const dangerErr = h('div', { class: 'form-error', role: 'alert' });
   const dangerBtn = h('button', { type: 'button', class: 'btn btn-danger', text: 'delete account' });
   const dangerZone = h('div', { class: 'danger-zone' }, [
@@ -172,7 +211,7 @@ export async function renderProfile(el, state) {
     }
   };
 
-  el.replaceChildren(header, userCard, statsPanel, pfpPanel, dangerZone);
+  el.replaceChildren(header, userCard, statsPanel, usernamePanel, pfpPanel, dangerZone);
 }
 
 function statItem(num, label) {

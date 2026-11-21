@@ -208,7 +208,7 @@ function renderTopbar() {
         title: 'Profile',
         class: `topbar-profile-link ${state.view === 'profile' ? 'active' : ''}`,
       }, [
-        state.user.pfp ? h('img', { class: 'topbar-pfp', src: state.user.pfp, alt: '' }) : null,
+        state.user.pfp ? h('img', { class: 'topbar-pfp', src: state.user.pfp, alt: '', loading: 'lazy', decoding: 'async' }) : null,
         h('span', { text: state.user.username }),
         state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
       ]),
@@ -280,6 +280,18 @@ export function navigate(hash) {
 }
 
 window.addEventListener('hashchange', route);
+
+// Pause card hover effects while the page is actually scrolling (no layout reads here).
+let scrollEndTimer = null;
+window.addEventListener(
+  'scroll',
+  () => {
+    document.body.classList.add('is-scrolling');
+    clearTimeout(scrollEndTimer);
+    scrollEndTimer = setTimeout(() => document.body.classList.remove('is-scrolling'), 90);
+  },
+  { passive: true },
+);
 
 async function init() {
   try {

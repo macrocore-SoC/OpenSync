@@ -1,5 +1,6 @@
 import { createReadStream, readFileSync } from 'node:fs';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { GAME_STATUS, USERS_ROOT } from './config.js';
 import { getDb } from './db.js';
@@ -36,8 +37,7 @@ export async function generateManifest(gameId) {
       } else if (entry.isFile()) {
         const rel = safeRelPath(path.posix.join(prefix, entry.name));
         if (!rel) continue;
-        const { size } = await stat(abs);
-        files.push({ path: rel, hash: '', size });
+        files.push({ path: rel, hash: '', size: 0 });
       }
     }
   }
@@ -45,12 +45,32 @@ export async function generateManifest(gameId) {
   await walk(filesDir, '');
   manifestProgress.set(Number(gameId), { total: files.length, done: 0 });
 
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    const abs = path.join(filesDir, f.path);
-    f.hash = await streamHash(createReadStream(abs));
-    manifestProgress.set(Number(gameId), { total: files.length, done: i + 1 });
+  // Hash with a bounded worker pool: each worker pulls the next index, so
+  // results are written back by index and the sorted `files` order is kept.
+  const concurrency = Math.min(8, Math.max(2, os.cpus().length));
+  const workerCount = Math.min(concurrency, files.length);
+
+  let nextStat = 0;
+  async function statWorker() {
+    while (nextStat < files.length) {
+      const i = nextStat++;
+      const { size } = await stat(path.join(filesDir, files[i].path));
+      files[i].size = size;
+    }
   }
+  await Promise.all(Array.from({ length: workerCount }, () => statWorker()));
+
+  let nextHash = 0;
+  let completed = 0;
+  async function hashWorker() {
+    while (nextHash < files.length) {
+      const i = nextHash++;
+      files[i].hash = await streamHash(createReadStream(path.join(filesDir, files[i].path)));
+      completed += 1;
+      manifestProgress.set(Number(gameId), { total: files.length, done: completed });
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, () => hashWorker()));
 
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
   const manifest = { game_id: Number(gameId), files };
