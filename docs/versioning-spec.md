@@ -37,7 +37,7 @@ Every file below **must** stay synchronized with `/VERSION`:
 | `package-lock.json` | `.version`, `.packages[""].version` | npm lockfile metadata parity |
 | `launcher/Cargo.toml` | `[workspace.package].version` | Shared Rust version inherited by all 8 crates via `version.workspace = true` |
 | `launcher/Cargo.lock` | `[[package]].version` for all 8 local workspace crates | Cargo workspace lockfile parity |
-| `launcher/crates/launcher-tauri/tauri.conf.json` | `.version` | Tauri bundle & installer metadata |
+| `launcher/crates/launcher-tauri/tauri.conf.json` | `.version`, `.bundle.macOS.bundleVersion` | Tauri bundle, DMG, & macOS `CFBundleVersion` metadata |
 | `launcher/packaging/flatpak/io.opensync.launcher.metainfo.xml` | First `<release version="X.Y.Z" date="YYYY-MM-DD" />` | AppStream / Flatpak release metadata |
 | `landing/index.html` | `?v=X.Y.Z` asset queries, `#announce-tag`, `#hero-download-label`, `#launcher-release-pill`, `#footer-releases-label`, fallback asset links & Flatpak command | Instant CDN cache-busting & offline/rate-limit fallback links |
 | `landing/js/landing.js` | `activeReleaseTag` (`'vX.Y.Z'`) & `PLAYER_TARGETS` fallback download URLs | Runtime fallback URLs before GitHub API resolves |
@@ -79,6 +79,8 @@ Every tagged release `vX.Y.Z` produces the following immutable artifacts:
 - **Launcher Linux AppImage (amd64)**: `OpenSync_Launcher_${VERSION}_amd64.AppImage` + `.sha256`
 - **Launcher Linux Flatpak (amd64)**: `OpenSync_Launcher_${VERSION}_amd64.flatpak` + `.sha256`
 - **Launcher Windows Installer/Executable (x64)**: `OpenSync_Launcher_${VERSION}_x64.exe` + `.sha256`
+- **Launcher macOS Apple Silicon (aarch64)**: `OpenSync_Launcher_${VERSION}_aarch64.dmg` + `OpenSync_Launcher_${VERSION}_aarch64.app.zip` + `OpenSync_Launcher_${VERSION}_aarch64.sha256`
+- **Launcher macOS Intel (x86_64)**: `OpenSync_Launcher_${VERSION}_x86_64.dmg` + `OpenSync_Launcher_${VERSION}_x86_64.app.zip` + `OpenSync_Launcher_${VERSION}_x86_64.sha256`
 - **Server Docker Image (`linux/amd64`)**: `ghcr.io/piskevalee-cpu/opensync:${VERSION}` and (for non-prerelease tags) `ghcr.io/piskevalee-cpu/opensync:latest`
 
 ---

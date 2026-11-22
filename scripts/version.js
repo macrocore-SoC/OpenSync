@@ -154,6 +154,9 @@ export function collectVersionMismatches() {
   if (tauriConf.version !== rootRaw) {
     mismatches.push(`launcher/crates/launcher-tauri/tauri.conf.json: expected "${rootRaw}", got "${tauriConf.version}"`);
   }
+  if (tauriConf.bundle?.macOS?.bundleVersion && tauriConf.bundle.macOS.bundleVersion !== rootRaw) {
+    mismatches.push(`launcher/crates/launcher-tauri/tauri.conf.json (bundle.macOS.bundleVersion): expected "${rootRaw}", got "${tauriConf.bundle.macOS.bundleVersion}"`);
+  }
 
   const metainfo = readRel('launcher/packaging/flatpak/io.opensync.launcher.metainfo.xml');
   const topReleaseVer = extractTopMetainfoVersion(metainfo);
@@ -237,6 +240,9 @@ export function bumpAllVersions(targetArg, dateStr = new Date().toISOString().sl
 
   const tauriConf = JSON.parse(readRel('launcher/crates/launcher-tauri/tauri.conf.json'));
   tauriConf.version = nextVer;
+  if (tauriConf.bundle?.macOS?.bundleVersion !== undefined) {
+    tauriConf.bundle.macOS.bundleVersion = nextVer;
+  }
   writeRel('launcher/crates/launcher-tauri/tauri.conf.json', `${JSON.stringify(tauriConf, null, 2)}\n`);
 
   const metainfo = readRel('launcher/packaging/flatpak/io.opensync.launcher.metainfo.xml');
