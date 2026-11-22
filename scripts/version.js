@@ -175,6 +175,8 @@ export function collectVersionMismatches() {
     ['landing/index.html (flatpak asset URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_amd64.flatpak`],
     ['landing/index.html (appimage asset URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_amd64.AppImage`],
     ['landing/index.html (windows asset URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_x64.exe`],
+    ['landing/index.html (macOS arm64 asset URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_aarch64.dmg`],
+    ['landing/index.html (macOS x86_64 asset URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_x86_64.dmg`],
   ];
   for (const [label, needle] of expectedHtmlChecks) {
     if (!landingHtml.includes(needle)) {
@@ -188,6 +190,8 @@ export function collectVersionMismatches() {
     ['landing/js/landing.js (flatpak URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_amd64.flatpak`],
     ['landing/js/landing.js (appimage URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_amd64.AppImage`],
     ['landing/js/landing.js (windows URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_x64.exe`],
+    ['landing/js/landing.js (macOS arm64 URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_aarch64.dmg`],
+    ['landing/js/landing.js (macOS x86_64 URL)', `/releases/download/v${rootRaw}/OpenSync_Launcher_${rootRaw}_x86_64.dmg`],
   ];
   for (const [label, needle] of expectedJsChecks) {
     if (!landingJs.includes(needle)) {
