@@ -103,10 +103,9 @@ Download the latest **`v0.1.0`** binaries directly from [OpenSync Launcher Relea
   chmod +x OpenSync_Launcher_0.1.0_amd64.AppImage
   ./OpenSync_Launcher_0.1.0_amd64.AppImage
   ```
-* **Linux Flatpak (amd64)** — [Download `OpenSync_Launcher_0.1.0_amd64.flatpak`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak)
+* **Linux Flatpak (amd64)** — 1-command fetch & install from [v0.1.0 Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak):
   ```sh
-  flatpak install --user OpenSync_Launcher_0.1.0_amd64.flatpak
-  flatpak run io.opensync.launcher
+  curl -fSL https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak -o /tmp/opensync.flatpak && flatpak install --user -y /tmp/opensync.flatpak && flatpak run io.opensync.launcher
   ```
 * **Windows (x64)** — [Download `OpenSync_Launcher_0.1.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_x64.exe)
 
