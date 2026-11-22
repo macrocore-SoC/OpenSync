@@ -180,7 +180,7 @@ jobs:
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: launcher/OpenSync_Launcher.flatpak
+          bundle: OpenSync_Launcher.flatpak
           manifest-path: launcher/packaging/flatpak/io.opensync.launcher.yml
           branch: stable
           cache-key: flatpak-builder-x86_64
@@ -195,7 +195,7 @@ jobs:
           fi
           mkdir -p dist
           FLATPAK_NAME="OpenSync_Launcher_${VERSION}_amd64.flatpak"
-          mv OpenSync_Launcher.flatpak "dist/${FLATPAK_NAME}"
+          mv ../OpenSync_Launcher.flatpak "dist/${FLATPAK_NAME}"
           (cd dist && sha256sum "${FLATPAK_NAME}" > "${FLATPAK_NAME}.sha256")
           ls -lh dist
 
