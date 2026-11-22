@@ -35,11 +35,12 @@ function attachParticleField(canvas, authBody) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return () => canvas.remove();
 
+  // Every stroke is a green shade — no blue or neutral particles.
   const COLORS = [
+    'rgba(125, 250, 155, 0.85)',
     'rgba(125, 250, 155, 0.55)',
-    'rgba(125, 250, 155, 0.32)',
-    'rgba(107, 179, 255, 0.28)',
-    'rgba(230, 230, 230, 0.18)',
+    'rgba(74, 222, 128, 0.45)',
+    'rgba(187, 247, 208, 0.32)',
   ];
   const pointer = { x: -1, y: -1 };
   let width = 0;

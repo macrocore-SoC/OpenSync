@@ -20,6 +20,141 @@ function monogramPlaceholder(name) {
   ]);
 }
 
+const CHEVRON_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+/**
+ * Accessible CSS pill dropdown for library sorting. The menu is a child of the
+ * trigger wrapper, so it leaves the DOM together with the view; listeners and
+ * the detach observer only exist while the menu is open.
+ */
+function createCssSelect({ options, value, onChange, ariaLabel = 'Sort games' }) {
+  const root = h('div', { class: 'css-select' });
+  const valueEl = h('span', { class: 'css-select-value' });
+  const trigger = h('button', {
+    type: 'button',
+    class: 'css-select-trigger',
+    'aria-haspopup': 'listbox',
+    'aria-expanded': 'false',
+    'aria-label': ariaLabel,
+  }, [valueEl, h('span', { class: 'css-select-chevron', html: CHEVRON_SVG })]);
+  root.append(trigger);
+
+  let selected = options.some((o) => o.value === value) ? value : (options[0]?.value ?? '');
+  let activeIndex = Math.max(0, options.findIndex((o) => o.value === selected));
+  let menu = null;
+  let open = false;
+  let observer = null;
+
+  const labelFor = (v) => options.find((o) => o.value === v)?.label ?? v;
+
+  function syncTrigger() {
+    valueEl.textContent = labelFor(selected);
+    trigger.setAttribute('aria-label', `${ariaLabel}: ${labelFor(selected)}`);
+  }
+
+  function paintActive() {
+    const items = menu ? [...menu.querySelectorAll('.css-select-option')] : [];
+    items.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+    items[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function pick(index) {
+    const opt = options[index];
+    if (!opt) return;
+    selected = opt.value;
+    activeIndex = index;
+    syncTrigger();
+    closeMenu();
+    trigger.focus();
+    if (typeof onChange === 'function') onChange(selected);
+  }
+
+  function closeMenu() {
+    if (!open) return;
+    open = false;
+    observer?.disconnect();
+    observer = null;
+    document.removeEventListener('pointerdown', onDocPointer);
+    document.removeEventListener('keydown', onDocKey, true);
+    root.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    menu?.remove();
+    menu = null;
+  }
+
+  function openMenu() {
+    if (open) return;
+    open = true;
+    activeIndex = Math.max(0, options.findIndex((o) => o.value === selected));
+    root.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+
+    menu = h('div', { class: 'css-select-menu', role: 'listbox', 'aria-label': ariaLabel });
+    options.forEach((opt, i) => {
+      const item = h('button', {
+        type: 'button',
+        class: `css-select-option${opt.value === selected ? ' selected' : ''}${i === activeIndex ? ' is-active' : ''}`,
+        role: 'option',
+        'aria-selected': String(opt.value === selected),
+        onclick: (e) => { e.stopPropagation(); pick(i); },
+        onpointerenter: () => { activeIndex = i; paintActive(); },
+      }, [h('span', { text: opt.label })]);
+      if (opt.value === selected) {
+        item.append(h('span', { class: 'css-select-check', html: CHECK_SVG }));
+      }
+      menu.append(item);
+    });
+    root.append(menu);
+
+    document.addEventListener('pointerdown', onDocPointer);
+    document.addEventListener('keydown', onDocKey, true);
+    observer = new MutationObserver(() => {
+      if (!root.isConnected) closeMenu();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function onDocPointer(e) {
+    if (!root.contains(e.target)) closeMenu();
+  }
+
+  function onDocKey(e) {
+    if (!open) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+      trigger.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      activeIndex = (activeIndex + dir + options.length) % options.length;
+      paintActive();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      pick(activeIndex);
+    }
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (open) closeMenu();
+    else openMenu();
+  });
+  trigger.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) openMenu();
+    }
+  });
+
+  syncTrigger();
+  return { element: root, get value() { return selected; } };
+}
+
 export async function renderLibrary(el) {
   const seq = currentRenderSeq();
   const titleEl = h('h1', { class: 'page-title' }, 'Game library');
@@ -69,12 +204,20 @@ export async function renderLibrary(el) {
       searchInput.focus();
     },
   });
-  const sortSelect = h('select', { class: 'sort-select', 'aria-label': 'Sort games' }, [
-    h('option', { value: 'newest', text: 'Newest first' }),
-    h('option', { value: 'name', text: 'Name A–Z' }),
-    h('option', { value: 'size', text: 'Largest first' }),
-    h('option', { value: 'downloads', text: 'Most downloaded' }),
-  ]);
+  const sortSelect = createCssSelect({
+    options: [
+      { value: 'newest', label: 'Newest first' },
+      { value: 'name', label: 'Name A–Z' },
+      { value: 'size', label: 'Largest first' },
+      { value: 'downloads', label: 'Most downloaded' },
+    ],
+    value: sortBy,
+    ariaLabel: 'Sort games',
+    onChange: (value) => {
+      sortBy = value;
+      renderGrid();
+    },
+  });
   const countLabel = h('span', { class: 'lib-count faint small' });
 
   searchInput.addEventListener('input', () => {
@@ -82,14 +225,10 @@ export async function renderLibrary(el) {
     clearBtn.hidden = !query;
     renderGrid();
   });
-  sortSelect.addEventListener('change', () => {
-    sortBy = sortSelect.value;
-    renderGrid();
-  });
 
   controlsHost.replaceChildren(
     h('div', { class: 'search-wrap' }, [searchInput, clearBtn]),
-    h('div', { class: 'lib-toolbar-right' }, [countLabel, sortSelect]),
+    h('div', { class: 'lib-toolbar-right' }, [countLabel, sortSelect.element]),
   );
 
   function renderGrid() {

@@ -84,6 +84,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Always reserve the vertical scrollbar track: routes of different heights
+   then share one content width and never shift sideways on navigation. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 img,
 svg,
 video {
@@ -141,6 +148,13 @@ textarea {
   max-width: 1248px;
   margin: 0 auto;
   padding: 0 24px 60px;
+}
+
+/* Every route (library, admin, upload, profile, game detail) fills the same
+   shell content box: no intrinsic minimum width, no shrink-to-fit. */
+#view {
+  width: 100%;
+  min-width: 0;
 }
 
 .topbar {
@@ -285,9 +299,12 @@ textarea {
 }
 
 .badge-admin {
-  color: var(--warn);
-  border-color: rgba(255, 209, 102, 0.28);
-  background: var(--warn-dim);
+  color: #CBD2DC;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .badge-processing {
@@ -482,6 +499,15 @@ button:disabled,
   transform: none;
 }
 
+/* Header and admin utility actions react only through color, background and
+   border — they never lift, so nothing around them jumps on hover. */
+.topbar .btn:hover,
+.topbar button:hover,
+.topbar-user .btn:hover,
+.admin-create-form .btn:hover {
+  transform: none;
+}
+
 /* ---------- panels, code & headings ---------- */
 
 .panel {
@@ -573,8 +599,7 @@ h3 { font-size: 15px; margin: 0 0 10px; }
 .field input[type="file"],
 .field textarea,
 .admin-input,
-.search-input,
-.sort-select {
+.search-input {
   width: 100%;
   min-width: 0;
   background: var(--elevated);
@@ -603,11 +628,11 @@ textarea::placeholder {
 .field input:focus,
 .field textarea:focus,
 .admin-input:focus,
-.search-input:focus,
-.sort-select:focus {
-  outline: none;
-  border-color: rgba(125, 250, 155, 0.5);
-  box-shadow: 0 0 0 3px var(--accent-dim);
+.search-input:focus {
+  outline: 1px solid rgba(125, 250, 155, 0.35);
+  outline-offset: 0;
+  border-color: rgba(125, 250, 155, 0.55);
+  box-shadow: none;
   background: var(--elevated);
 }
 
@@ -837,10 +862,143 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
-.sort-select {
-  width: auto;
+/* ---------- custom filter dropdown (no native OS select) ---------- */
+
+.css-select {
+  position: relative;
+  display: inline-flex;
   min-width: 148px;
+}
+
+.css-select-trigger {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 148px;
+  min-height: 38px;
+  padding: 8px 10px 8px 16px;
+  background: var(--elevated);
+  border: 1px solid var(--hairline);
+  border-radius: var(--pill);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease),
+    color 0.15s var(--ease);
+}
+
+.css-select-trigger:hover:not(:disabled) {
+  background: var(--tonal-hover);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.css-select.is-open .css-select-trigger {
+  background: var(--elevated);
+  border-color: rgba(125, 250, 155, 0.55);
+}
+
+.css-select-trigger:focus-visible {
+  outline: 1px solid rgba(125, 250, 155, 0.35);
+  outline-offset: 0;
+}
+
+.css-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.css-select-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.18s var(--ease), color 0.15s var(--ease);
+}
+
+.css-select.is-open .css-select-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.css-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: max(100%, 190px);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--panel); /* #111318 — flat, no gradient */
+  border: 1px solid var(--hairline);
+  border-radius: var(--tile); /* 18px nested tile */
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  animation: css-select-in 0.16s var(--ease);
+}
+
+@keyframes css-select-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.css-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: none !important;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease),
+    border-color 0.15s var(--ease);
+}
+
+.css-select-option:hover,
+.css-select-option.is-active {
+  background: var(--tonal);
+  border-color: transparent;
+  color: var(--fg);
+}
+
+.css-select-option.selected {
+  background: var(--accent-dim);
+  border-color: rgba(125, 250, 155, 0.3);
+  color: var(--accent);
+}
+
+.css-select-option .css-select-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 .grid {
