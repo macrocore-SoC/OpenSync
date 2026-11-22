@@ -406,13 +406,13 @@ button:hover:not(:disabled),
   background: var(--tonal-hover);
   border-color: rgba(255, 255, 255, 0.16);
   color: var(--fg);
-  transform: translateY(var(--lift));
+  transform: none;
   text-decoration: none;
 }
 
 button:active:not(:disabled),
 .btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: none;
 }
 
 button:disabled,
@@ -437,8 +437,8 @@ button:disabled,
   background: var(--primary-fill-hover);
   border-color: var(--primary-fill-hover);
   color: var(--primary-ink);
-  transform: translateY(var(--lift));
-  box-shadow: 0 8px 24px rgba(244, 246, 250, 0.16);
+  transform: none;
+  box-shadow: 0 8px 24px rgba(244, 246, 250, 0.14);
 }
 
 .btn-danger {
@@ -892,22 +892,29 @@ textarea::placeholder {
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
+  transform: none !important;
   transition: border-color 0.2s var(--ease), background 0.2s var(--ease),
     color 0.15s var(--ease);
 }
 
 .css-select-trigger:hover:not(:disabled) {
   background: var(--tonal-hover);
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .css-select.is-open .css-select-trigger {
-  background: var(--elevated);
-  border-color: rgba(125, 250, 155, 0.55);
+  background: var(--tonal-hover);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.css-select-trigger:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .css-select-trigger:focus-visible {
-  outline: 1px solid rgba(125, 250, 155, 0.35);
+  border-color: rgba(255, 255, 255, 0.28);
+  outline: 1px solid rgba(255, 255, 255, 0.22);
   outline-offset: 0;
 }
 
@@ -930,7 +937,7 @@ textarea::placeholder {
 
 .css-select.is-open .css-select-chevron {
   transform: rotate(180deg);
-  color: var(--accent);
+  color: var(--fg);
 }
 
 .css-select-menu {
@@ -983,14 +990,22 @@ textarea::placeholder {
 .css-select-option:hover,
 .css-select-option.is-active {
   background: var(--tonal);
-  border-color: transparent;
+  border-color: var(--hairline);
   color: var(--fg);
 }
 
 .css-select-option.selected {
-  background: var(--accent-dim);
-  border-color: rgba(125, 250, 155, 0.3);
-  color: var(--accent);
+  background: var(--tonal-hover);
+  border-color: var(--hairline);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.css-select-option.selected:hover,
+.css-select-option.selected.is-active {
+  background: var(--tonal-hover);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--fg);
 }
 
 .css-select-option .css-select-check {
