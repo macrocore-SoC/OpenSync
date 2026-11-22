@@ -1,5 +1,6 @@
 import { api, fmtDate, humanSize } from '../api.js';
 import { currentRenderSeq, navigate } from '../app.js';
+import { fadeOutHero, prepareHeroBg, scheduleClearHero, showGameHero } from '../hero.js';
 import { h } from '../ui.js';
 import { showDownloadDialog } from './game.js';
 
@@ -157,6 +158,8 @@ function createCssSelect({ options, value, onChange, ariaLabel = 'Sort games' })
 
 export async function renderLibrary(el) {
   const seq = currentRenderSeq();
+  prepareHeroBg();
+  fadeOutHero();
   const titleEl = h('h1', { class: 'page-title' }, 'Game library');
   const controlsHost = h('div', { class: 'lib-header-controls' });
   const header = h('div', { class: 'lib-header' }, [titleEl, controlsHost]);
@@ -251,6 +254,7 @@ export async function renderLibrary(el) {
       : `${games.length} ${games.length === 1 ? 'game' : 'games'}`;
 
     if (!sorted.length) {
+      fadeOutHero();
       box.replaceChildren(
         h('div', { class: 'empty' }, [
           h('p', { text: `No games match "${searchInput.value.trim()}".` }),
@@ -325,10 +329,11 @@ function buildWebCardStats(g, isReady) {
   return stats;
 }
 
-function attachStatTicker(card, ticker, stats, intervalMs = 2000) {
+function attachStatTicker(card, ticker, stats, intervalMs = 1500, firstDelayMs = 450) {
   if (!ticker || !Array.isArray(stats) || stats.length < 2) return;
 
   let index = 0;
+  let firstTimer = null;
   let timer = null;
   let hovered = false;
   let focused = false;
@@ -367,22 +372,36 @@ function attachStatTicker(card, ticker, stats, intervalMs = 2000) {
     }, { once: true });
   };
 
+  const stopTimers = () => {
+    if (firstTimer !== null) {
+      window.clearTimeout(firstTimer);
+      firstTimer = null;
+    }
+    if (timer !== null) {
+      window.clearInterval(timer);
+      timer = null;
+    }
+  };
+
+  const stepNext = () => {
+    if (!card.isConnected) {
+      stopTimers();
+      return false;
+    }
+    swapTo((index + 1) % stats.length, 'up');
+    return true;
+  };
+
   const syncTimer = () => {
     if (hovered || focused) {
-      if (timer !== null) return;
-      timer = window.setInterval(() => {
-        if (!card.isConnected) {
-          window.clearInterval(timer);
-          timer = null;
-          return;
-        }
-        swapTo((index + 1) % stats.length, 'up');
-      }, intervalMs);
+      if (firstTimer !== null || timer !== null) return;
+      firstTimer = window.setTimeout(() => {
+        firstTimer = null;
+        if (!stepNext()) return;
+        timer = window.setInterval(stepNext, intervalMs);
+      }, firstDelayMs);
     } else {
-      if (timer !== null) {
-        window.clearInterval(timer);
-        timer = null;
-      }
+      stopTimers();
       if (index !== 0) {
         swapTo(0, 'down');
       }
@@ -483,7 +502,16 @@ function gameCard(g) {
     footer,
   ]);
 
+  const activateHero = () => showGameHero(coverFailed ? null : g.cover);
+  const deactivateHero = () => scheduleClearHero(95);
+  card.addEventListener('pointerenter', activateHero);
+  card.addEventListener('pointerleave', deactivateHero);
+  card.addEventListener('focusin', activateHero);
+  card.addEventListener('focusout', (e) => {
+    if (!card.contains(e.relatedTarget)) deactivateHero();
+  });
+
   attachSteamTilt(card);
-  attachStatTicker(card, statTicker, stats, 2000);
+  attachStatTicker(card, statTicker, stats, 1500, 450);
   return card;
 }

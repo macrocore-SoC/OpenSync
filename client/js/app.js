@@ -6,6 +6,7 @@ import { renderLibrary } from './views/library.js';
 import { renderGame, renderSyncBar, syncProgress } from './views/game.js';
 import { renderUpload, renderUploadBar, uploadProgress } from './views/upload.js';
 import { renderAdmin } from './views/admin.js';
+import { clearGameHeroImmediate } from './hero.js';
 
 const state = {
   user: null,
@@ -256,6 +257,9 @@ function route() {
   const found = routes.find((r) => r.match());
   ++renderSeq;
   state.view = found.view;
+  if (found.view !== 'library' && found.view !== 'game') {
+    clearGameHeroImmediate();
+  }
   if (notifDismissCleanup) {
     notifDismissCleanup();
     notifDismissCleanup = null;

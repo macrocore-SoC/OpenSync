@@ -4,6 +4,7 @@ import { uploadChunks } from '../chunker.js';
 import { createReqFields } from '../reqfields.js';
 import { confirmDialog, h, toast } from '../ui.js';
 import { currentRenderSeq, navigate, state, syncGlobalBarVisibility } from '../app.js';
+import { fadeOutHero, invalidateHeroCache, prepareHeroBg, showGameHero } from '../hero.js';
 
 let syncSession = null;
 let syncBarHost = null;
@@ -162,6 +163,7 @@ export function showDownloadDialog(game) {
 export async function renderGame(el) {
   const id = location.hash.split('/')[2];
   const seq = currentRenderSeq();
+  prepareHeroBg();
   const box = h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [
     h('span', { class: 'spinner' }),
     h('span', { text: 'Loading…' }),
@@ -173,9 +175,12 @@ export async function renderGame(el) {
   const canManage = state.user.role === 'admin' || game.uploaded_by === state.user.id;
 
   if (game.status === 'processing') {
+    fadeOutHero();
     renderProcessing(el, game);
     return;
   }
+
+  showGameHero(game.cover);
 
   const openCover = () => openCoverLightbox(game.cover, game.name);
   const onCoverKey = (e) => {
@@ -194,6 +199,7 @@ export async function renderGame(el) {
     frame.removeEventListener('click', openCover);
     frame.removeEventListener('keydown', onCoverKey);
     frame.replaceChildren(monogramPlaceholder(game.name));
+    fadeOutHero();
   };
 
   let coverFrame = null;
@@ -452,6 +458,7 @@ function renderEdit(el, game) {
         });
         if (coverFile) {
           await api.games.cover(game.id, coverFile);
+          invalidateHeroCache(`/api/games/${game.id}/cover`);
         }
         toast('Changes saved');
         renderGame(el);

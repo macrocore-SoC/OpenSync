@@ -144,10 +144,69 @@ textarea {
 /* ---------- shell ---------- */
 
 .shell {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 1248px;
   margin: 0 auto;
   padding: 0 24px 60px;
+}
+
+/* Subtle pre-blurred cover hero backdrop (fades in on Library card hover and Game Detail). */
+.detail-hero-bg {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  right: 0;
+  height: clamp(220px, 34vh, 380px);
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;
+  transform: translateZ(0);
+  opacity: 0;
+  transition: opacity 0.34s var(--ease);
+  background: radial-gradient(
+    ellipse 72% 85% at 24% 12%,
+    rgba(125, 250, 155, 0.085) 0%,
+    rgba(24, 27, 34, 0.42) 48%,
+    transparent 82%
+  );
+}
+
+.detail-hero-bg.is-active {
+  opacity: 1;
+}
+
+.detail-hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(
+    to bottom,
+    rgba(9, 10, 13, 0.16) 0%,
+    rgba(9, 10, 13, 0.5) 44%,
+    rgba(9, 10, 13, 0.88) 78%,
+    var(--canvas) 100%
+  );
+}
+
+.detail-hero-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.38s var(--ease);
+  will-change: opacity;
+}
+
+.detail-hero-img.is-visible {
+  opacity: 0.52;
 }
 
 /* Every route (library, admin, upload, profile, game detail) fills the same
