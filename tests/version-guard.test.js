@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { collectVersionMismatches, computeNextVersion, parseSemver } from '../scripts/version.js';
 
 const ROOT = new URL('../', import.meta.url);
 
@@ -40,4 +41,17 @@ test('install.sh defines MIN_NODE_MINOR and rejects 22.x with minor < 13', () =>
 test('README.md mentions Node.js 22.13+', () => {
   const readme = readRel('README.md');
   assert.match(readme, /\*\*Node\.js 22\.13\+\*\*/, 'README prerequisites must say Node.js 22.13+');
+});
+
+test('monorepo version manifests stay lockstep with VERSION (docs/versioning-spec.md)', () => {
+  const { version, mismatches } = collectVersionMismatches();
+  assert.ok(parseSemver(version), `VERSION "${version}" must be valid SemVer`);
+  assert.deepEqual(mismatches, [], `Version drift detected:\n${mismatches.join('\n')}`);
+});
+
+test('version bump calculation increments SemVer components accurately', () => {
+  assert.equal(computeNextVersion('0.3.0', 'patch'), '0.3.1');
+  assert.equal(computeNextVersion('0.3.0', 'minor'), '0.4.0');
+  assert.equal(computeNextVersion('0.3.0', 'major'), '1.0.0');
+  assert.equal(computeNextVersion('0.3.0', '0.4.0-rc.1'), '0.4.0-rc.1');
 });

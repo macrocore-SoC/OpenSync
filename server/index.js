@@ -1,4 +1,5 @@
 import express from 'express';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { CLIENT_DIR, HOST, PORT, STORAGE_ROOT } from './config.js';
 import { ensureStorage, getDb } from './db.js';
@@ -21,17 +22,19 @@ gcOrphanedData()
   })
   .catch((err) => console.error('[opensync] gc failed:', err));
 
+const APP_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
 const app = express();
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '8mb' }));
 app.use(attachUser);
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'opensync' }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'opensync', version: APP_VERSION }));
 
 app.get('/api/info', (_req, res) => {
   const admins = getDb().prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n;
-  res.json({ name: 'opensync', has_admin: admins > 0 });
+  res.json({ name: 'opensync', version: APP_VERSION, has_admin: admins > 0 });
 });
 
 app.use('/api/auth', authRouter);

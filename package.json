@@ -1,6 +1,6 @@
 {
   "name": "opensync",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "description": "Self-hosted LAN platform for offline games: upload, download, differential save sync",
   "type": "module",
   "main": "server/index.js",
@@ -9,6 +9,8 @@
     "start": "node server/index.js",
     "test": "node --test tests/*.test.js",
     "lint": "node scripts/lint.js",
+    "version:check": "node scripts/version.js check",
+    "version:bump": "node scripts/version.js bump",
     "db:init": "node server/db.js init",
     "db:migrate": "node server/db.js migrate"
   },
