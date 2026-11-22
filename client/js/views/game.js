@@ -14,6 +14,18 @@ function monogram(name) {
   return String(name || 'G').trim().slice(0, 2).toUpperCase();
 }
 
+// Shared placeholder: a cover that fails to load becomes the same monogram
+// tile as a game with no cover, so no broken-image icon is ever shown.
+function monogramPlaceholder(name) {
+  return h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
+    h('span', { class: 'card-cover-monogram', text: monogram(name) }),
+  ]);
+}
+
+function gameCoverPlaceholder(name) {
+  return h('div', { class: 'game-cover-lg' }, [monogramPlaceholder(name)]);
+}
+
 function endSync() {
   syncSession = null;
   syncGlobalBarVisibility();
@@ -42,7 +54,7 @@ function cancelSync() {
   if (!syncSession) return;
   syncSession.cancelled = true;
   syncSession.controller.abort();
-  toast('sync cancelled');
+  toast('Sync cancelled');
   endSync();
 }
 
@@ -65,10 +77,10 @@ export function renderSyncBar(host) {
   sub.replaceChildren(
     h('div', { class: 'uploadbar' }, [
       h('div', { class: 'flex uploadbar-head' }, [
-        h('a', { class: 'uploadbar-name', href: `#/game/${syncSession.gameId}`, text: `syncing "${syncSession.name}"` }),
+        h('a', { class: 'uploadbar-name', href: `#/game/${syncSession.gameId}`, text: `Syncing "${syncSession.name}"` }),
         h('div', { class: 'uploadbar-right' }, [
           h('span', { class: 'uploadbar-stats' }),
-          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync }),
+          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'Cancel', onclick: cancelSync }),
         ]),
       ]),
       h('div', { class: 'progress' }, [h('div', { class: 'progress-bar' })]),
@@ -152,7 +164,7 @@ export async function renderGame(el) {
   const seq = currentRenderSeq();
   const box = h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [
     h('span', { class: 'spinner' }),
-    h('span', { text: 'loading…' }),
+    h('span', { text: 'Loading…' }),
   ]);
   el.replaceChildren(box);
 
@@ -165,28 +177,46 @@ export async function renderGame(el) {
     return;
   }
 
+  const openCover = () => openCoverLightbox(game.cover, game.name);
+  const onCoverKey = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openCover();
+    }
+  };
+  const swapCoverToPlaceholder = (frame) => {
+    if (!frame || frame.dataset.coverFallback) return;
+    frame.dataset.coverFallback = '1';
+    frame.classList.remove('has-cover');
+    frame.removeAttribute('role');
+    frame.removeAttribute('tabindex');
+    frame.removeAttribute('title');
+    frame.removeEventListener('click', openCover);
+    frame.removeEventListener('keydown', onCoverKey);
+    frame.replaceChildren(monogramPlaceholder(game.name));
+  };
+
+  let coverFrame = null;
   const coverEl = game.cover
-    ? h('div', {
-        class: 'game-cover-lg has-cover',
-        role: 'button',
-        tabIndex: 0,
-        title: 'Click to expand cover',
-        onclick: () => openCoverLightbox(game.cover, game.name),
-        onkeydown: (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openCoverLightbox(game.cover, game.name);
-          }
-        },
-      }, [
-        h('img', { src: game.cover, alt: game.name }),
-        h('span', { class: 'cover-expand-hint', text: 'expand' }),
-      ])
-    : h('div', { class: 'game-cover-lg' }, [
-        h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
-          h('span', { class: 'card-cover-monogram', text: monogram(game.name) }),
-        ]),
-      ]);
+    ? (() => {
+        const img = h('img', {
+          alt: game.name,
+          // Handler first, so cached/already-failed images are caught too.
+          onerror: () => swapCoverToPlaceholder(coverFrame),
+          src: game.cover,
+        });
+        coverFrame = h('div', {
+          class: 'game-cover-lg has-cover',
+          role: 'button',
+          tabIndex: 0,
+          title: 'Click to expand cover',
+          onclick: openCover,
+          onkeydown: onCoverKey,
+        }, [img, h('span', { class: 'cover-expand-hint', text: 'Expand' })]);
+        if (img.complete && img.naturalWidth === 0) swapCoverToPlaceholder(coverFrame);
+        return coverFrame;
+      })()
+    : gameCoverPlaceholder(game.name);
 
   el.replaceChildren(
     h('a', { class: 'btn btn-sm btn-ghost', href: '#/', text: 'Back to library' }),
@@ -258,14 +288,14 @@ export async function renderGame(el) {
 function renderProcessing(el, game) {
   const title = h('div', { class: 'flex', style: 'justify-content:center;gap:10px;margin-bottom:10px;' }, [
     h('span', { class: 'spinner', style: 'width:18px;height:18px;' }),
-    h('h2', { style: 'margin:0;', text: 'processing manifest…' }),
+    h('h2', { style: 'margin:0;', text: 'Processing manifest…' }),
   ]);
-  const sub = h('p', { class: 'muted small', text: `hashing every file for ${game.name}` });
+  const sub = h('p', { class: 'muted small', text: `Hashing every file for ${game.name}` });
   const progLabel = h('p', { class: 'muted small', style: 'margin-bottom:8px;' });
   const barWrap = h('div', { class: 'progress', style: 'max-width:420px;margin:0 auto 16px;' });
   const bar = h('div', { class: 'progress-bar', style: 'width:0%;' });
   barWrap.appendChild(bar);
-  const link = h('a', { class: 'btn btn-ghost', href: '#/', text: 'back to library' });
+  const link = h('a', { class: 'btn btn-ghost', href: '#/', text: 'Back to library' });
 
   el.replaceChildren(
     h('div', { class: 'panel', style: 'text-align:center;padding:40px;' }, [title, sub, progLabel, barWrap, link]),
@@ -287,10 +317,10 @@ function renderProcessing(el, game) {
       if (p && Number.isInteger(p.total) && p.total > 0) {
         const pct = Math.min(100, Math.round((p.done / p.total) * 100));
         bar.style.width = `${pct}%`;
-        progLabel.textContent = `hashing file ${Math.min(p.done + 1, p.total)} of ${p.total}`;
+        progLabel.textContent = `Hashing file ${Math.min(p.done + 1, p.total)} of ${p.total}`;
       } else {
         bar.style.width = '6%';
-        progLabel.textContent = 'walking files…';
+        progLabel.textContent = 'Walking files…';
       }
     } catch {
       /* transient */
@@ -333,14 +363,14 @@ function renderEdit(el, game) {
 
   let coverFile = null;
   const nameInput = h('input', { type: 'text', value: game.name });
-  const name = h('div', { class: 'field' }, [h('label', { text: 'name' }), nameInput]);
+  const name = h('div', { class: 'field' }, [h('label', { text: 'Name' }), nameInput]);
   const descInput = h('textarea', {}, game.description || '');
-  const desc = h('div', { class: 'field' }, [h('label', { text: 'description (optional)' }), descInput]);
+  const desc = h('div', { class: 'field' }, [h('label', { text: 'Description (optional)' }), descInput]);
 
   const reqs = createReqFields(game.system_requirements || '');
   reqs.wrap.querySelector('label')?.remove();
   const reqDetails = h('details', { class: 'req-details', open: Boolean(game.system_requirements) }, [
-    h('summary', { text: 'system requirements (optional)' }),
+    h('summary', { text: 'System requirements (optional)' }),
     h('div', { class: 'req-details-body' }, [reqs.wrap]),
   ]);
 
@@ -351,7 +381,7 @@ function renderEdit(el, game) {
     src: game.cover || '',
     hidden: !game.cover,
   });
-  const coverHint = h('span', { class: 'muted small', text: game.cover ? 'click or drop to replace cover' : 'click to choose or drop jpg/png' });
+  const coverHint = h('span', { class: 'muted small', text: game.cover ? 'Click or drop to replace cover' : 'Click to choose or drop JPG/PNG' });
   const coverPicker = h('div', {
     class: 'cover-picker',
     role: 'button',
@@ -402,18 +432,18 @@ function renderEdit(el, game) {
     coverPicker.classList.remove('drag-over');
     const f = [...(e.dataTransfer?.files || [])].find((file) => /^image\/(jpeg|png)$/.test(file.type));
     if (f) setCoverFile(f);
-    else toast('cover image must be jpg or png', 'warn');
+    else toast('Cover image must be JPG or PNG', 'warn');
   });
 
-  const cover = h('div', { class: 'field' }, [h('label', { text: 'cover image (optional)' }), coverPicker]);
-  const save = h('button', { type: 'submit', class: 'btn btn-primary', text: 'save changes' });
+  const cover = h('div', { class: 'field' }, [h('label', { text: 'Cover image (optional)' }), coverPicker]);
+  const save = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Save changes' });
   const err = h('div', { class: 'form-error', role: 'alert' });
   const form = h('form', {
     onsubmit: async (e) => {
       e.preventDefault();
       err.textContent = '';
       save.disabled = true;
-      save.textContent = 'saving…';
+      save.textContent = 'Saving…';
       try {
         await api.games.patch(game.id, {
           name: nameInput.value,
@@ -423,12 +453,12 @@ function renderEdit(el, game) {
         if (coverFile) {
           await api.games.cover(game.id, coverFile);
         }
-        toast('changes saved');
+        toast('Changes saved');
         renderGame(el);
       } catch (ex) {
         err.textContent = ex.message;
         save.disabled = false;
-        save.textContent = 'save changes';
+        save.textContent = 'Save changes';
       }
     },
   }, [
@@ -437,13 +467,13 @@ function renderEdit(el, game) {
     reqDetails,
     h('div', { class: 'flex', style: 'margin-top:14px;' }, [
       save,
-      h('button', { type: 'button', class: 'btn btn-ghost', text: 'cancel', onclick: () => panel.remove() }),
+      h('button', { type: 'button', class: 'btn btn-ghost', text: 'Cancel', onclick: () => panel.remove() }),
     ]),
     err,
   ]);
 
   const panel = h('div', { id: 'edit-game-panel', class: 'panel' }, [
-    h('h3', { text: 'edit game' }),
+    h('h3', { text: 'Edit game' }),
     form,
   ]);
 
@@ -454,25 +484,25 @@ function renderEdit(el, game) {
 
 async function deleteGame(game) {
   const ok = await confirmDialog(
-    'delete game',
+    'Delete game',
     `This permanently deletes "${game.name}" and all its files from disk.`,
     { danger: true, confirmText: 'Delete' },
   );
   if (!ok) return;
   await api.games.remove(game.id);
-  toast('game deleted');
+  toast('Game deleted');
   navigate('#/');
 }
 
 async function resetOverlay(game) {
   const ok = await confirmDialog(
-    'reset save',
+    'Reset save',
     'Remove your save overlay for this game? Your local files are untouched.',
     { danger: true, confirmText: 'Reset save' },
   );
   if (!ok) return;
   await api.games.clearOverlay(game.id);
-  toast('save overlay reset');
+  toast('Save overlay reset');
   renderGame(document.getElementById('view'));
 }
 
@@ -480,7 +510,7 @@ async function resetOverlay(game) {
 
 async function startSync(el, game) {
   if (syncSession) {
-    toast('a sync is already running', 'warn');
+    toast('A sync is already running', 'warn');
     return;
   }
   const picker = h('input', { type: 'file', style: 'display:none' });
@@ -493,7 +523,7 @@ async function startSync(el, game) {
     if (!files.length) return;
     runSync(el, game, files).catch((e) => {
       endSync();
-      toast(e.message || 'sync failed', 'error');
+      toast(e.message || 'Sync failed', 'error');
     });
   };
   picker.click();
@@ -502,12 +532,12 @@ async function startSync(el, game) {
 async function runSync(el, game, files) {
   el.querySelector('#sync-status-panel')?.remove();
   const statusEl = h('div', { id: 'sync-status-panel', class: 'panel' });
-  const p1 = h('p', { class: 'muted small', style: 'margin:0;', text: 'hashing local files…' });
+  const p1 = h('p', { class: 'muted small', style: 'margin:0;', text: 'Hashing local files…' });
   const p2 = h('p', { class: 'faint small', style: 'margin:6px 0 0;' });
   const barWrap = h('div', { class: 'progress', style: 'margin:10px 0 0;' });
   const bar = h('div', { class: 'progress-bar', style: 'width:0%;' });
   barWrap.appendChild(bar);
-  const cancelBtn = h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelSync });
+  const cancelBtn = h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'Cancel', onclick: cancelSync });
   statusEl.append(
     h('div', { class: 'flex-between' }, [p1, cancelBtn]),
     p2,
@@ -536,7 +566,7 @@ async function runSync(el, game, files) {
   let hashed = 0;
   for (const [relPath, file] of local) {
     if (syncSession?.cancelled) return;
-    p2.textContent = `hashing ${relPath} …`;
+    p2.textContent = `Hashing ${relPath} …`;
     const hash = await hashFile(file);
     local.set(relPath, { file, hash });
     hashed += 1;
@@ -568,12 +598,12 @@ async function runSync(el, game, files) {
   if (deletions.length > 0) {
     const pct = Math.round((deletions.length / Math.max(1, clean.size)) * 100);
     const ok = await confirmDialog(
-      'many files missing',
+      'Many files missing',
       `${deletions.length} files (${pct}% of the game) are missing from the folder you selected and will be removed from your download. If you only picked your save folder, cancel and select the full game folder.`,
       { danger: true },
     );
     if (!ok) {
-      p1.textContent = 'sync cancelled';
+      p1.textContent = 'Sync cancelled';
       endSync();
       return;
     }
@@ -588,7 +618,7 @@ async function runSync(el, game, files) {
     return;
   }
 
-  p1.textContent = `uploading ${uploads.length} file(s), removing ${deletions.length} path(s)`;
+  p1.textContent = `Uploading ${uploads.length} file(s), removing ${deletions.length} path(s)`;
   const initState = await api.games.overlayInit(game.id);
   const resume = new Map(initState.files.map((f) => [f.path, f.received]));
   const chunkSize = initState.chunkSize;
@@ -631,36 +661,36 @@ async function runSync(el, game, files) {
       });
     } catch (e) {
       if (e.name === 'AbortError' || syncSession?.cancelled) {
-        p1.textContent = 'sync cancelled';
+        p1.textContent = 'Sync cancelled';
         endSync();
         return;
       }
       endSync();
       if (e.code === 'RESUME_REQUIRED') {
-        toast('upload state changed mid-sync; retry', 'warn');
+        toast('Upload state changed mid-sync; retry', 'warn');
         return;
       }
       throw e;
     }
   }
 
-  p1.textContent = 'finalizing sync…';
+  p1.textContent = 'Finalizing sync…';
   bar.style.width = '100%';
   try {
     await api.games.syncComplete(game.id, deletions, true);
   } finally {
     endSync();
   }
-  toast(`save synced (${uploads.length} files, ${humanSize(totalBytes)})`);
+  toast(`Save synced (${uploads.length} files, ${humanSize(totalBytes)})`);
   if (location.hash === `#/game/${game.id}`) {
     renderGame(el);
   } else {
     cancelBtn.hidden = true;
     p2.textContent = '';
-    p1.textContent = `✓ synced ${uploads.length} files (${humanSize(totalBytes)}), ${deletions.length} deletions`;
+    p1.textContent = `✓ Synced ${uploads.length} files (${humanSize(totalBytes)}), ${deletions.length} deletions`;
     statusEl.append(
       h('div', { class: 'stats-line' }, [
-        h('button', { type: 'button', class: 'btn btn-sm', text: 'refresh', onclick: () => renderGame(el) }),
+        h('button', { type: 'button', class: 'btn btn-sm', text: 'Refresh', onclick: () => renderGame(el) }),
       ]),
     );
   }

@@ -16,7 +16,7 @@ function benchTable() {
   );
   return h('div', { class: 'table-wrap', style: 'margin-top:12px;' }, [
     h('table', { class: 'tbl' }, [
-      h('thead', {}, [h('tr', {}, [h('th', { text: 'zip method' }), h('th', { text: 'throughput' }), h('th', { text: 'output (64 MB input)' })])]),
+      h('thead', {}, [h('tr', {}, [h('th', { text: 'Zip method' }), h('th', { text: 'Throughput' }), h('th', { text: 'Output (64 MB input)' })])]),
       h('tbody', {}, rows),
     ]),
   ]);
@@ -43,9 +43,9 @@ export async function renderAdmin(el, state) {
     h('tbody', {}, users.map((u) => userRow(u))),
   ]);
 
-  const nuUser = h('input', { type: 'text', id: 'nu-user', class: 'admin-input', placeholder: 'username', autocomplete: 'off' });
-  const nuPass = h('input', { type: 'password', id: 'nu-pass', class: 'admin-input', placeholder: 'password (6+ chars)', autocomplete: 'new-password' });
-  const createBtn = h('button', { type: 'submit', class: 'btn btn-sm btn-primary', text: 'create user' });
+  const nuUser = h('input', { type: 'text', id: 'nu-user', class: 'admin-input', placeholder: 'Username', autocomplete: 'off' });
+  const nuPass = h('input', { type: 'password', id: 'nu-pass', class: 'admin-input', placeholder: 'Password (6+ chars)', autocomplete: 'new-password' });
+  const createBtn = h('button', { type: 'submit', class: 'btn btn-sm btn-primary', text: 'Create user' });
   const createForm = h('form', {
     class: 'admin-create-form',
     onsubmit: async (e) => {
@@ -53,7 +53,7 @@ export async function renderAdmin(el, state) {
       createBtn.disabled = true;
       try {
         await api.admin.createUser({ username: nuUser.value, password: nuPass.value });
-        toast('user created');
+        toast('User created');
         renderAdmin(document.getElementById('view'), state);
       } catch (err) {
         toast(err.message, 'error');
@@ -62,10 +62,10 @@ export async function renderAdmin(el, state) {
     },
   }, [nuUser, nuPass, createBtn]);
 
-  const benchBtn = h('button', { type: 'button', class: 'btn btn-sm', text: 'run benchmark' });
+  const benchBtn = h('button', { type: 'button', class: 'btn btn-sm', text: 'Run benchmark' });
   benchBtn.onclick = async () => {
     benchBtn.disabled = true;
-    benchBtn.textContent = 'benchmarking…';
+    benchBtn.textContent = 'Benchmarking…';
     try {
       benchResult = await api.admin.bench();
     } catch (e) {
@@ -75,7 +75,7 @@ export async function renderAdmin(el, state) {
   };
 
   el.replaceChildren(
-    h('h1', { class: 'page-title' }, 'admin panel'),
+    h('h1', { class: 'page-title' }, 'Admin panel'),
     kpis,
     h('div', { class: 'section-title' }, ['Zip benchmark']),
     h('div', { class: 'panel' }, [
@@ -93,10 +93,10 @@ export async function renderAdmin(el, state) {
   const recentPanel = h('div', { class: 'panel' });
   el.append(recentPanel);
   if (!stats.recent_downloads.length) {
-    recentPanel.append(h('p', { class: 'faint small', style: 'margin:0;', text: 'no downloads yet.' }));
+    recentPanel.append(h('p', { class: 'faint small', style: 'margin:0;', text: 'No downloads yet.' }));
   } else {
     const table = h('table', { class: 'tbl' }, [
-      h('thead', {}, [h('tr', {}, [h('th', { text: 'when' }), h('th', { text: 'user' }), h('th', { text: 'game' })])]),
+      h('thead', {}, [h('tr', {}, [h('th', { text: 'When' }), h('th', { text: 'User' }), h('th', { text: 'Game' })])]),
       h('tbody', {}, stats.recent_downloads.map((r) =>
         h('tr', {}, [
           h('td', { class: 'muted small', text: fmtDateTime(r.created_at) }),
@@ -131,24 +131,24 @@ export async function renderAdmin(el, state) {
       ]),
       h('td', {}, [
         u.role === 'admin'
-          ? h('span', { class: 'badge badge-admin', text: 'admin' })
-          : h('span', { class: 'pill', text: 'user' }),
+          ? h('span', { class: 'badge badge-admin', text: 'Admin' })
+          : h('span', { class: 'pill', text: 'User' }),
       ]),
       h('td', { class: 'muted small', text: String(u.games_count) }),
       h('td', { class: 'muted small', text: String(u.downloads_count) }),
       h('td', { class: 'muted small', text: fmtDateTime(u.created_at) }),
       h('td', {}, [
-        h('div', { class: 'flex', style: 'gap:6px;' }, [
+        h('div', { class: 'flex' }, [
           h('button', {
             type: 'button',
             class: 'btn btn-sm btn-ghost',
-            text: u.role === 'admin' ? 'demote' : 'promote',
+            text: u.role === 'admin' ? 'Demote' : 'Promote',
             disabled: isSelf,
             title: isSelf ? 'Cannot change your own role' : '',
             onclick: async () => {
               try {
                 await api.admin.setRole(u.id, u.role === 'admin' ? 'user' : 'admin');
-                toast('role updated');
+                toast('Role updated');
                 renderAdmin(document.getElementById('view'), state);
               } catch (e) {
                 toast(e.message, 'error');
@@ -158,19 +158,19 @@ export async function renderAdmin(el, state) {
           h('button', {
             type: 'button',
             class: 'btn btn-sm btn-ghost btn-danger',
-            text: 'delete',
+            text: 'Delete',
             disabled: isSelf,
             title: isSelf ? 'Cannot delete your own account here' : '',
             onclick: async () => {
               const ok = await confirmDialog(
-                'delete user',
+                'Delete user',
                 `Delete @${u.username}? Their overlays are removed from disk.`,
                 { danger: true, confirmText: 'Delete' },
               );
               if (!ok) return;
               try {
                 await api.admin.removeUser(u.id);
-                toast('user deleted');
+                toast('User deleted');
                 renderAdmin(document.getElementById('view'), state);
               } catch (e) {
                 toast(e.message, 'error');

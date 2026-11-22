@@ -31,6 +31,11 @@ export function currentRenderSeq() {
 
 const BELL_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
 
+// AG-DESIGN: full-pill controls, centered nav rail and the Jakarta/Inter UI stack.
+const PILL_SM = 'border-radius:9999px;';
+const NAV_STYLE = 'flex:1;justify-content:center;gap:6px;';
+const NAV_LINK_STYLE = 'border-radius:9999px;padding:8px 16px;font-size:13.5px;font-weight:600;letter-spacing:-0.01em;';
+
 let notifTimer = null;
 let notifDismissCleanup = null;
 
@@ -83,13 +88,14 @@ async function populateNotifDropdown(bell, drop) {
   }
 
   const head = h('div', { class: 'notif-head flex-between' }, [
-    h('span', { class: 'small bold', text: 'notifications' }),
+    h('span', { class: 'small bold', text: 'Notifications' }),
     h('div', { class: 'flex', style: 'gap:6px;' }, [
       items.unread
         ? h('button', {
             type: 'button',
             class: 'btn btn-sm btn-ghost',
-            text: 'mark all read',
+            style: PILL_SM,
+            text: 'Mark all read',
             onclick: async () => {
               await api.notifications.markAllRead();
               await populateNotifDropdown(bell, drop);
@@ -100,7 +106,8 @@ async function populateNotifDropdown(bell, drop) {
         ? h('button', {
             type: 'button',
             class: 'btn btn-sm btn-ghost',
-            text: 'clear',
+            style: PILL_SM,
+            text: 'Clear',
             onclick: async () => {
               await api.notifications.clearAll();
               await populateNotifDropdown(bell, drop);
@@ -112,7 +119,7 @@ async function populateNotifDropdown(bell, drop) {
 
   const listEl = h('div', { class: 'notif-list' });
   if (!items.notifications.length) {
-    listEl.append(h('p', { class: 'faint small', style: 'padding:14px;margin:0;', text: 'no notifications yet.' }));
+    listEl.append(h('p', { class: 'faint small', style: 'padding:14px;margin:0;', text: 'No notifications yet.' }));
   }
   for (const n of items.notifications) {
     const item = h('a', {
@@ -147,7 +154,7 @@ async function toggleNotifDropdown(bell) {
   const drop = h('div', { class: 'notif-drop panel' }, [
     h('div', { class: 'muted small flex', style: 'gap:8px;padding:14px;' }, [
       h('span', { class: 'spinner' }),
-      h('span', { text: 'loading…' }),
+      h('span', { text: 'Loading…' }),
     ]),
   ]);
   bell.append(drop);
@@ -175,6 +182,7 @@ function renderBell() {
     h('button', {
       type: 'button',
       class: 'bell-btn',
+      style: PILL_SM,
       'aria-label': 'Notifications',
       title: 'Notifications',
       html: BELL_SVG,
@@ -194,12 +202,13 @@ function renderTopbar() {
   }
   topbar.hidden = false;
   topbar.style.display = '';
+  topbar.style.fontFamily = "'Plus Jakarta Sans', 'Inter', sans-serif";
   topbar.replaceChildren(
     h('a', { class: 'logo', href: '#/', title: 'OpenSync' }, [h('img', { src: '/img/opensync.png', alt: 'OpenSync' })]),
-    h('nav', { class: 'nav' }, [
-      h('a', { href: '#/', class: state.view === 'library' ? 'active' : '', text: 'library' }),
-      h('a', { href: '#/upload', class: state.view === 'upload' ? 'active' : '', text: 'upload' }),
-      state.user.role === 'admin' ? h('a', { href: '#/admin', class: state.view === 'admin' ? 'active' : '', text: 'admin' }) : null,
+    h('nav', { class: 'nav nav-center', style: NAV_STYLE }, [
+      h('a', { href: '#/', class: state.view === 'library' ? 'active' : '', style: NAV_LINK_STYLE, text: 'Library' }),
+      h('a', { href: '#/upload', class: state.view === 'upload' ? 'active' : '', style: NAV_LINK_STYLE, text: 'Upload' }),
+      state.user.role === 'admin' ? h('a', { href: '#/admin', class: state.view === 'admin' ? 'active' : '', style: NAV_LINK_STYLE, text: 'Admin' }) : null,
     ]),
     h('div', { class: 'topbar-user' }, [
       renderBell(),
@@ -207,18 +216,19 @@ function renderTopbar() {
         href: '#/profile',
         title: 'Profile',
         class: `topbar-profile-link ${state.view === 'profile' ? 'active' : ''}`,
+        style: PILL_SM,
       }, [
         state.user.pfp ? h('img', { class: 'topbar-pfp', src: state.user.pfp, alt: '', loading: 'lazy', decoding: 'async' }) : null,
         h('span', { text: state.user.username }),
-        state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
+        state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'Admin' }) : null,
       ]),
-      h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'logout', onclick: () => onLogout() }),
+      h('button', { type: 'button', class: 'btn btn-sm btn-ghost', style: PILL_SM, text: 'Sign out', onclick: () => onLogout() }),
     ]),
   );
 }
 
 async function onLogout() {
-  const ok = await confirmDialog('logout', 'Sign out of this session?');
+  const ok = await confirmDialog('Sign out', 'Sign out of this session?');
   if (!ok) return;
   try {
     await api.auth.logout();
@@ -254,7 +264,7 @@ function route() {
   viewEl.replaceChildren(
     h('div', { class: 'muted small flex', style: 'gap:8px;padding:24px 0;' }, [
       h('span', { class: 'spinner' }),
-      h('span', { text: 'loading…' }),
+      h('span', { text: 'Loading…' }),
     ]),
   );
   renderTopbar();
@@ -267,7 +277,7 @@ function route() {
     .catch((err) => {
       viewEl.replaceChildren(
         h('div', { class: 'panel' }, [
-          h('h2', { text: 'error' }),
+          h('h2', { text: 'Error' }),
           h('pre', { class: 'codebox', text: err.message || String(err) }),
         ]),
       );

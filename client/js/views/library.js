@@ -12,16 +12,24 @@ function monogram(name) {
   return String(name || 'G').trim().slice(0, 2).toUpperCase();
 }
 
+// Shared placeholder so a broken cover degrades to the same monogram tile
+// used when a game has no cover at all — never a broken-image glyph.
+function monogramPlaceholder(name) {
+  return h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
+    h('span', { class: 'card-cover-monogram', text: monogram(name) }),
+  ]);
+}
+
 export async function renderLibrary(el) {
   const seq = currentRenderSeq();
-  const titleEl = h('h1', { class: 'page-title' }, 'game library');
+  const titleEl = h('h1', { class: 'page-title' }, 'Game library');
   const controlsHost = h('div', { class: 'lib-header-controls' });
   const header = h('div', { class: 'lib-header' }, [titleEl, controlsHost]);
   const box = h('div', { id: 'lib' });
   box.replaceChildren(
     h('div', { class: 'muted small flex', style: 'gap:8px;padding:12px 0;' }, [
       h('span', { class: 'spinner' }),
-      h('span', { text: 'fetching library…' }),
+      h('span', { text: 'Fetching library…' }),
     ]),
   );
   el.replaceChildren(header, box);
@@ -267,11 +275,22 @@ function gameCard(g) {
   const size = isReady ? humanSize(g.total_size) : 'Processing…';
   const stats = buildWebCardStats(g, isReady);
 
+  let coverFailed = false;
   const media = g.cover
-    ? h('img', { class: 'card-cover-img', src: g.cover, alt: g.name, loading: 'lazy', decoding: 'async' })
-    : h('div', { class: 'card-cover-placeholder', 'aria-hidden': 'true' }, [
-        h('span', { class: 'card-cover-monogram', text: monogram(g.name) }),
-      ]);
+    ? h('img', {
+        class: 'card-cover-img',
+        alt: g.name,
+        loading: 'lazy',
+        decoding: 'async',
+        // Register the handler before src so even instant failures are caught.
+        onerror: (e) => {
+          if (coverFailed) return;
+          coverFailed = true;
+          e.currentTarget.replaceWith(monogramPlaceholder(g.name));
+        },
+        src: g.cover,
+      })
+    : monogramPlaceholder(g.name);
 
   const cornerBadge = g.status === 'processing'
     ? h('span', { class: 'badge badge-processing card-cover-badge', text: 'Processing' })

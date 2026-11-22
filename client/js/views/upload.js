@@ -27,7 +27,7 @@ export function renderUploadBar(host) {
         h('a', { class: 'uploadbar-name', href: '#/upload' }),
         h('div', { class: 'uploadbar-right' }, [
           h('span', { class: 'uploadbar-stats' }),
-          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'cancel', onclick: cancelUpload }),
+          h('button', { type: 'button', class: 'btn btn-sm btn-ghost', text: 'Cancel', onclick: cancelUpload }),
         ]),
       ]),
       h('div', { class: 'progress' }, [h('div', { class: 'progress-bar' })]),
@@ -61,7 +61,7 @@ function updateBar() {
   const bar = barHost.querySelector('.ub-upload .uploadbar');
   if (!bar) return;
   const pct = session.total > 0 ? Math.round((session.uploaded / session.total) * 100) : 100;
-  bar.querySelector('.uploadbar-name').textContent = `uploading "${session.name}"`;
+  bar.querySelector('.uploadbar-name').textContent = `Uploading "${session.name}"`;
   bar.querySelector('.progress-bar').style.width = `${pct}%`;
   const parts = [`${session.doneCount}/${session.files.length} files`, `${pct}%`, `${humanSize(session.rate)}/s`];
   if (session.eta != null) parts.push(`${fmtEta(session.eta)} left`);
@@ -78,7 +78,7 @@ async function cancelUpload() {
   } catch {
     /* ignore */
   }
-  toast('upload cancelled');
+  toast('Upload cancelled');
   resetView();
   if (location.hash === '#/upload') navigate('#/upload');
 }
@@ -132,11 +132,11 @@ function buildUploadView() {
 
   const coverInput = h('input', { type: 'file', accept: 'image/jpeg,image/png', style: 'display:none' });
   const coverImg = h('img', { class: 'cover-preview', alt: '', hidden: true });
-  const coverLabelText = h('span', { class: 'muted small', text: 'click to choose or drop jpg/png' });
+  const coverLabelText = h('span', { class: 'muted small', text: 'Click to choose or drop a JPG or PNG' });
   const coverRemoveBtn = h('button', {
     type: 'button',
     class: 'btn btn-sm btn-ghost',
-    text: 'remove',
+    text: 'Remove',
     hidden: true,
     onclick: (e) => {
       e.stopPropagation();
@@ -169,7 +169,7 @@ function buildUploadView() {
       coverImg.hidden = true;
       coverImg.removeAttribute('src');
       coverInput.value = '';
-      coverLabelText.textContent = 'click to choose or drop jpg/png';
+      coverLabelText.textContent = 'Click to choose or drop a JPG or PNG';
     }
     syncFormControls();
   }
@@ -199,7 +199,7 @@ function buildUploadView() {
     coverPicker.classList.remove('drag-over');
     const file = [...(e.dataTransfer?.files || [])].find((f) => /^image\/(jpeg|png)$/.test(f.type));
     if (file) setCoverFile(file);
-    else toast('cover image must be jpg or png', 'warn');
+    else toast('Cover image must be JPG or PNG', 'warn');
   });
 
   const coverField = h('div', { class: 'field' }, [
@@ -232,11 +232,11 @@ function buildUploadView() {
   const folderSelected = h('div', { class: 'folder-selected', hidden: true }, [
     h('div', { class: 'folder-summary flex-between' }, [
       folderSummaryText,
-      h('div', { class: 'flex', style: 'gap:8px;' }, [
+      h('div', { class: 'flex' }, [
         h('button', {
           type: 'button',
           class: 'btn btn-sm',
-          text: 'change folder',
+          text: 'Change folder',
           onclick: (e) => {
             e.stopPropagation();
             openFolderPicker();
@@ -245,7 +245,7 @@ function buildUploadView() {
         h('button', {
           type: 'button',
           class: 'btn btn-sm btn-ghost',
-          text: 'clear',
+          text: 'Clear',
           onclick: (e) => {
             e.stopPropagation();
             setFiles([]);
@@ -301,7 +301,7 @@ function buildUploadView() {
     descField,
     reqDetails,
     h('div', { class: 'upload-actions flex-between' }, [
-      h('div', { class: 'flex', style: 'gap:10px;flex-wrap:wrap;' }, [startBtn, clearBtn]),
+      h('div', { class: 'flex', style: 'flex-wrap:wrap;' }, [startBtn, clearBtn]),
       readinessHint,
     ]),
     err,
@@ -313,11 +313,11 @@ function buildUploadView() {
   const rowsWrap = h('div', { class: 'upload-list' });
   const progressPanel = h('div', { class: 'panel', hidden: true }, [
     h('div', { class: 'flex-between', style: 'margin-bottom:10px;' }, [
-      h('div', { class: 'flex', style: 'gap:10px;' }, [
-        h('h3', { style: 'margin:0;', text: 'uploading' }),
+      h('div', { class: 'flex' }, [
+        h('h3', { style: 'margin:0;', text: 'Uploading' }),
         headerName,
       ]),
-      h('button', { type: 'button', class: 'btn btn-sm btn-danger', text: 'cancel upload', onclick: cancelUpload }),
+      h('button', { type: 'button', class: 'btn btn-sm btn-danger', text: 'Cancel upload', onclick: cancelUpload }),
     ]),
     overallWrap,
     stats,
@@ -325,7 +325,7 @@ function buildUploadView() {
   ]);
 
   const root = h('div', {}, [
-    h('h1', { class: 'page-title' }, 'upload a game'),
+    h('h1', { class: 'page-title' }, 'Upload a game'),
     formPanel,
     progressPanel,
   ]);
@@ -345,9 +345,9 @@ function buildUploadView() {
     const hasName = Boolean(nameInput.value.trim());
     startBtn.disabled = !(hasFiles && hasName);
     clearBtn.hidden = !hasAnyInput();
-    if (!hasFiles && !hasName) readinessHint.textContent = 'select a folder and enter a name to start';
-    else if (!hasFiles) readinessHint.textContent = 'select a game folder to start';
-    else if (!hasName) readinessHint.textContent = 'enter a game name to start';
+    if (!hasFiles && !hasName) readinessHint.textContent = 'Select a folder and enter a name to start';
+    else if (!hasFiles) readinessHint.textContent = 'Select a game folder to start';
+    else if (!hasName) readinessHint.textContent = 'Enter a game name to start';
     else readinessHint.textContent = `${files.length} files ready (${humanSize(files.reduce((s, f) => s + f.size, 0))})`;
   }
 
@@ -391,7 +391,7 @@ function buildUploadView() {
     setCoverFile(null);
     err.textContent = '';
     syncFormControls();
-    toast('form cleared');
+    toast('Form cleared');
   }
 
   picker.onchange = () => setFiles([...picker.files]);
@@ -399,12 +399,12 @@ function buildUploadView() {
   startBtn.onclick = async () => {
     err.textContent = '';
     if (!files.length) {
-      err.textContent = 'select a folder first';
+      err.textContent = 'Select a folder first';
       return;
     }
     const nameVal = nameInput.value.trim();
     if (!nameVal) {
-      err.textContent = 'name is required';
+      err.textContent = 'Name is required';
       nameInput.focus();
       return;
     }
@@ -436,7 +436,7 @@ function buildUploadView() {
       syncGlobalBarVisibility();
       progressPanel.hidden = true;
       formPanel.hidden = false;
-      err.textContent = e.message || 'upload failed';
+      err.textContent = e.message || 'Upload failed';
       syncFormControls();
     }
   };

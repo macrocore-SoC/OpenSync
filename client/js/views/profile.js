@@ -12,20 +12,20 @@ export async function renderProfile(el, state) {
   if (currentRenderSeq() !== seq) return;
 
   const header = h('div', { class: 'hero' }, [
-    h('h1', { class: 'page-title' }, 'profile'),
+    h('h1', { class: 'page-title' }, 'Profile'),
   ]);
 
   const pfp = state.user.pfp
     ? h('img', { class: 'pfp-lg', src: state.user.pfp, alt: '' })
     : h('span', { class: 'pfp-lg', text: state.user.username.slice(0, 2).toUpperCase() });
-  const userCard = h('div', { class: 'panel flex', style: 'gap:20px;align-items:center;' }, [
-    h('div', { class: 'flex', style: 'align-items:center;gap:16px;flex:1;' }, [
+  const userCard = h('div', { class: 'panel flex' }, [
+    h('div', { class: 'flex', style: 'flex:1;' }, [
       pfp,
       h('div', { style: 'flex:1;' }, [
         h('h2', { style: 'margin-bottom:6px;', text: `@${state.user.username}` }),
-        h('div', { class: 'flex', style: 'gap:10px;' }, [
-          state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'admin' }) : null,
-          h('span', { class: 'faint small', text: `member since ${fmtDate(state.user.created_at)}` }),
+        h('div', { class: 'flex' }, [
+          state.user.role === 'admin' ? h('span', { class: 'badge badge-admin', text: 'Admin' }) : null,
+          h('span', { class: 'faint small', text: `Member since ${fmtDate(state.user.created_at)}` }),
         ]),
       ]),
     ]),
@@ -68,12 +68,12 @@ export async function renderProfile(el, state) {
   const removeBtn = h('button', {
     type: 'button',
     class: 'btn btn-ghost btn-sm',
-    text: 'remove profile picture',
+    text: 'Remove profile picture',
     hidden: state.user.pfp === '/img/blankpfp.jpg',
     onclick: removePfp,
   });
   const pfpPanel = h('div', { class: 'panel', id: 'pfp-panel' }, [
-    h('h3', { text: 'profile picture' }),
+    h('h3', { text: 'Profile picture' }),
     pfpDropzone,
     state.user.pfp !== '/img/blankpfp.jpg' ? h('div', { class: 'flex', style: 'margin-top:10px;' }, [removeBtn]) : null,
     pfpErr,
@@ -82,16 +82,16 @@ export async function renderProfile(el, state) {
   let busy = false;
   async function uploadPfpFile(file) {
     if (!/^image\/(jpeg|png)$/.test(file.type)) {
-      pfpErr.textContent = 'profile picture must be jpg or png';
+      pfpErr.textContent = 'Profile picture must be JPG or PNG';
       return;
     }
     busy = true;
     pfpErr.textContent = '';
     pfpDropzone.classList.add('is-busy');
-    pfpZoneText.replaceChildren(h('span', { class: 'spinner', style: 'margin-right:8px;' }), 'uploading…');
+    pfpZoneText.replaceChildren(h('span', { class: 'spinner', style: 'margin-right:8px;' }), 'Uploading…');
     try {
       await api.auth.uploadPfp(file);
-      toast('profile picture saved');
+      toast('Profile picture saved');
       await refresh();
       navigate('#/profile');
     } catch (err) {
@@ -108,7 +108,7 @@ export async function renderProfile(el, state) {
     removeBtn.disabled = true;
     try {
       await api.auth.removePfp();
-      toast('profile picture removed');
+      toast('Profile picture removed');
       await refresh();
       navigate('#/profile');
     } catch (err) {
@@ -139,7 +139,7 @@ export async function renderProfile(el, state) {
     pfpPanel.classList.remove('drag-over');
     const file = [...(e.dataTransfer?.files || [])].find((f) => /^image\/(jpeg|png)$/.test(f.type));
     if (file && !busy) uploadPfpFile(file);
-    else if (!file) pfpErr.textContent = 'profile picture must be jpg or png';
+    else if (!file) pfpErr.textContent = 'Profile picture must be JPG or PNG';
   });
 
   const usernameErr = h('div', { class: 'form-error', role: 'alert' });
@@ -148,19 +148,19 @@ export async function renderProfile(el, state) {
     name: 'username',
     autocomplete: 'username',
     maxlength: 64,
-    'aria-label': 'username',
+    'aria-label': 'Username',
   });
   usernameInput.value = state.user.username;
-  const usernameSaveBtn = h('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'save' });
-  const usernameForm = h('form', { class: 'flex', style: 'gap:10px;align-items:flex-end;flex-wrap:wrap;' }, [
+  const usernameSaveBtn = h('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'Save' });
+  const usernameForm = h('form', { class: 'flex', style: 'align-items:flex-end;flex-wrap:wrap;' }, [
     h('div', { class: 'field', style: 'flex:1;min-width:180px;margin-bottom:0;' }, [
-      h('label', { text: 'username' }),
+      h('label', { text: 'Username' }),
       usernameInput,
     ]),
     usernameSaveBtn,
   ]);
   const usernamePanel = h('div', { class: 'panel', id: 'username-panel' }, [
-    h('h3', { text: 'username' }),
+    h('h3', { text: 'Username' }),
     usernameForm,
     usernameErr,
   ]);
@@ -172,7 +172,7 @@ export async function renderProfile(el, state) {
     try {
       const { user } = await api.auth.updateUsername(usernameInput.value);
       Object.assign(state.user, user);
-      toast('username saved');
+      toast('Username saved');
       usernameSaveBtn.disabled = false;
       navigate('#/profile');
     } catch (err) {
@@ -182,12 +182,12 @@ export async function renderProfile(el, state) {
   });
 
   const dangerErr = h('div', { class: 'form-error', role: 'alert' });
-  const dangerBtn = h('button', { type: 'button', class: 'btn btn-danger', text: 'delete account' });
+  const dangerBtn = h('button', { type: 'button', class: 'btn btn-danger', text: 'Delete account' });
   const dangerZone = h('div', { class: 'danger-zone' }, [
-    h('h3', { text: 'danger zone' }),
+    h('h3', { text: 'Danger zone' }),
     h('p', {
       class: 'muted small',
-      text: 'permanently removes your account and save syncs. games you uploaded stay on the server.',
+      text: 'Permanently removes your account and save syncs. Games you uploaded stay on the server.',
     }),
     h('div', { class: 'flex' }, [dangerBtn]),
     dangerErr,
@@ -195,7 +195,7 @@ export async function renderProfile(el, state) {
 
   dangerBtn.onclick = async () => {
     const ok = await confirmDialog(
-      'delete account',
+      'Delete account',
       'This permanently deletes your account and your save syncs. Games you uploaded stay on the server. Continue?',
       { danger: true, confirmText: 'Delete account' },
     );
@@ -203,7 +203,7 @@ export async function renderProfile(el, state) {
     try {
       await api.auth.deleteAccount();
       stopNotifPolling();
-      toast('account deleted');
+      toast('Account deleted');
       state.user = null;
       navigate('#/login');
     } catch (e) {
