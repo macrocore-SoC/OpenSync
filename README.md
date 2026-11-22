@@ -92,44 +92,85 @@ Key features:
 <!-- GETTING STARTED -->
 ## Getting Started
 
-### Prerequisites
+OpenSync has two components: the **Self-Hosted Server** (runs on your Linux machine, NAS, or server) and the optional **Desktop Launcher** (Linux & Windows app for downloading and playing with automatic save sync).
 
-* **Node.js 22.13+**
-* npm
+### 1. Desktop Launcher Install
 
-### Installation
+Download the latest **`v0.1.0`** binaries directly from [OpenSync Launcher Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/tag/v0.1.0):
 
-The quickest way is a single cURL one-liner — it checks/installs dependencies, asks where to install (home / current dir / custom), clones the repo, runs `npm install` + `db:init`, registers the global `opensync` command and optionally starts the server:
+* **Linux AppImage (amd64)** — [Download `OpenSync_Launcher_0.1.0_amd64.AppImage`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.AppImage)
+  ```sh
+  chmod +x OpenSync_Launcher_0.1.0_amd64.AppImage
+  ./OpenSync_Launcher_0.1.0_amd64.AppImage
+  ```
+* **Linux Flatpak (amd64)** — [Download `OpenSync_Launcher_0.1.0_amd64.flatpak`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak)
+  ```sh
+  flatpak install --user OpenSync_Launcher_0.1.0_amd64.flatpak
+  flatpak run io.opensync.launcher
+  ```
+* **Windows (x64)** — [Download `OpenSync_Launcher_0.1.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_x64.exe)
+
+### 2. Server Install
+
+#### Quick Install (Linux / macOS — One-Liner)
+
+Requires **Node.js 22.13+** and `npm` (the installer checks/installs dependencies, clones OpenSync, runs `npm install` + `db:init`, links the global `opensync` CLI, and starts the server):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/piskevalee-cpu/OpenSync/refs/heads/main/install.sh | bash
 ```
 
-The installer is interactive when run in a terminal (install location + start choices are prompted) and falls back to non-interactive defaults (`$HOME/OpenSync`, server started) when no terminal is available.
+> Open `http://<host>:3000` after starting — **the first account registered becomes the admin**.
 
-Manual steps — exactly what the installer does:
+#### Docker (Linux/amd64)
 
-1. Clone the repo
-   ```sh
-   git clone https://github.com/piskevalee-cpu/OpenSync.git
-   cd OpenSync
-   ```
-2. Install npm packages
-   ```sh
-   npm install
-   ```
-3. Initialize storage + database
-   ```sh
-   npm run db:init
-   ```
-4. Run it
-   ```sh
-   npm start        # production
-   npm run dev      # development (auto-restart)
-   ```
-5. Open `http://<host>:3000` and register — **the first user is the admin**.
+> **amd64 (x86_64) images only** — on ARM/Raspberry Pi hardware, use the `install.sh` route above.
 
-### Configuration
+```sh
+curl -O https://raw.githubusercontent.com/piskevalee-cpu/OpenSync/refs/heads/main/docker-compose.yml
+docker compose up -d
+```
+
+Or run the image directly (`opensync-data` volume keeps accounts, games, save overlays, and SQLite DB):
+
+```sh
+docker run -d --name opensync --restart unless-stopped -p 3000:3000 -v opensync-data:/data ghcr.io/piskevalee-cpu/opensync:latest
+```
+
+To upgrade Docker later: `docker pull ghcr.io/piskevalee-cpu/opensync && docker stop opensync && docker rm opensync`, then re-run the `docker run` command above.
+
+### 3. Build from Source
+
+#### Server (Node.js 22.13+)
+
+```sh
+git clone https://github.com/piskevalee-cpu/OpenSync.git
+cd OpenSync
+npm install
+npm run db:init
+npm start          # production (or npm run dev for auto-reload)
+```
+
+#### Desktop Launcher (Rust + Tauri v2)
+
+Install Tauri system packages first on Linux:
+* **Ubuntu / Debian**: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev patchelf`
+* **openSUSE Tumbleweed**: `sudo zypper in webkitgtk3-devel gtk3-devel libsoup-devel librsvg-devel`
+
+Then build and run from source:
+
+```sh
+git clone https://github.com/piskevalee-cpu/OpenSync-Launcher.git
+cd OpenSync-Launcher
+cargo build --release -p launcher-tauri
+```
+
+The compiled executable is output to `target/release/opensync-launcher` (or `target/release/opensync-launcher.exe` on Windows).
+
+### Prerequisites & Configuration
+
+* **Server**: **Node.js 22.13+** and `npm`
+* **Launcher from source**: Stable Rust toolchain (`rustup`), plus WebKitGTK 4.1 / GTK3 on Linux or MSVC on Windows
 
 | Env var | Default | Description |
 | --- | --- | --- |
@@ -137,39 +178,6 @@ Manual steps — exactly what the installer does:
 | `HOST` | `0.0.0.0` | Bind address |
 | `OPENSYNC_STORAGE` | `./storage` | Data dir (games, overlays, SQLite DB, HMAC secret) |
 | `OPENSYNC_SECRET` | auto-generated | Cookie-signing secret (stored in `storage/server-secret`) |
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-### Docker (Linux/amd64)
-
-> **amd64 (x86_64) images only** — no arm64 images are published. On ARM/Raspberry Pi/NAS hardware use the `install.sh`/`opensync` CLI route instead.
-
-```sh
-docker pull ghcr.io/piskevalee-cpu/opensync
-```
-
-Run:
-
-```sh
-docker run -d --name opensync --restart unless-stopped -p 3000:3000 -v opensync-data:/data ghcr.io/piskevalee-cpu/opensync:latest
-```
-
-Or with Compose — fetch the compose file from the repo, then start:
-
-```sh
-curl -O https://raw.githubusercontent.com/piskevalee-cpu/OpenSync/refs/heads/main/docker-compose.yml
-docker compose up -d
-```
-
-Data (accounts, games, save overlays, the SQLite DB) persists in the `opensync-data` volume.
-
-**Upgrading**: pull the new image and recreate the container — the volume keeps all data:
-
-```sh
-docker pull ghcr.io/piskevalee-cpu/opensync
-docker stop opensync && docker rm opensync
-docker run -d --name opensync --restart unless-stopped -p 3000:3000 -v opensync-data:/data ghcr.io/piskevalee-cpu/opensync:latest
-```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
