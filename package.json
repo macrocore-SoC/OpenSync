@@ -1,6 +1,6 @@
 {
   "name": "opensync",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Self-hosted LAN platform for offline games: upload, download, differential save sync",
   "type": "module",
   "main": "server/index.js",
