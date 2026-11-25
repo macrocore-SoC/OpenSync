@@ -58,19 +58,38 @@ export function clearSessionCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+function decodeCookieVal(v) {
+  if (!v.includes('%')) return v;
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 export function parseCookies(header) {
   const out = {};
   if (!header) return out;
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq < 0) continue;
-    const k = part.slice(0, eq).trim();
-    const v = part.slice(eq + 1).trim();
-    try {
-      out[k] = decodeURIComponent(v);
-    } catch {
-      out[k] = v;
+  const semi = header.indexOf(';');
+  if (semi < 0) {
+    const eq = header.indexOf('=');
+    if (eq >= 0) {
+      out[header.slice(0, eq).trim()] = decodeCookieVal(header.slice(eq + 1).trim());
     }
+    return out;
+  }
+  let start = 0;
+  while (start <= header.length) {
+    const next = header.indexOf(';', start);
+    const end = next < 0 ? header.length : next;
+    const eq = header.indexOf('=', start);
+    if (eq >= 0 && eq < end) {
+      const k = header.slice(start, eq).trim();
+      const v = header.slice(eq + 1, end).trim();
+      out[k] = decodeCookieVal(v);
+    }
+    if (next < 0) break;
+    start = next + 1;
   }
   return out;
 }

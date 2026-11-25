@@ -1,16 +1,42 @@
-import { createReadStream, readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { clearInFlightHashes } from './chunked.js';
 import { GAME_STATUS, USERS_ROOT } from './config.js';
 import { getDb } from './db.js';
-import { streamHash } from './security.js';
+import { hashFiles } from './hash-worker.js';
 import { gameDir, gameFilesDir, gameManifestPath, gameUploadsDir, safeRelPath } from './storage.js';
+
+const STAT_CONCURRENCY = 32;
+const MAX_UPLOADED_HASH_CACHE = 50000;
 
 /** In-memory hashing progress per game (reset on server restart). */
 const manifestProgress = new Map();
 /** Games with a manifest build already in flight (prevents double hashing). */
 const processingGames = new Set();
+/** Uploaded-file hash cache: resolved absPath -> { size, mtimeMs, hash }. */
+const uploadedHashCache = new Map();
+/** Parsed clean manifest cache: manifestPath -> { mtimeMs, size, ino, manifest }. */
+const manifestCache = new Map();
+
+export function recordUploadedFileHash(absPath, entry) {
+  const key = path.resolve(absPath);
+  if (uploadedHashCache.size >= MAX_UPLOADED_HASH_CACHE && !uploadedHashCache.has(key)) {
+    uploadedHashCache.delete(uploadedHashCache.keys().next().value);
+  }
+  uploadedHashCache.set(key, entry);
+}
+
+export function deleteUploadedFileHash(absPath) {
+  uploadedHashCache.delete(path.resolve(absPath));
+}
+
+function clearUploadedHashesForPrefix(dirPath) {
+  const prefix = path.resolve(dirPath) + path.sep;
+  for (const key of uploadedHashCache.keys()) {
+    if (key.startsWith(prefix)) uploadedHashCache.delete(key);
+  }
+}
 
 export function getManifestProgress(gameId) {
   return manifestProgress.get(Number(gameId)) || null;
@@ -22,10 +48,12 @@ export function getManifestProgress(gameId) {
  * files listed in deterministic (sorted) order.
  */
 export async function generateManifest(gameId) {
-  const filesDir = gameFilesDir(gameId);
+  const id = Number(gameId);
+  const filesDir = gameFilesDir(id);
   const files = [];
+  const absPaths = [];
 
-  manifestProgress.set(Number(gameId), { total: null, done: 0 });
+  manifestProgress.set(id, { total: null, done: 0 });
 
   async function walk(dir, prefix) {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -38,44 +66,69 @@ export async function generateManifest(gameId) {
         const rel = safeRelPath(path.posix.join(prefix, entry.name));
         if (!rel) continue;
         files.push({ path: rel, hash: '', size: 0 });
+        absPaths.push(path.resolve(abs));
       }
     }
   }
 
   await walk(filesDir, '');
-  manifestProgress.set(Number(gameId), { total: files.length, done: 0 });
+  manifestProgress.set(id, { total: files.length, done: 0 });
 
-  // Hash with a bounded worker pool: each worker pulls the next index, so
-  // results are written back by index and the sorted `files` order is kept.
-  const concurrency = Math.min(8, Math.max(2, os.cpus().length));
-  const workerCount = Math.min(concurrency, files.length);
-
+  const mtimes = new Array(files.length);
+  const statWorkers = Math.min(STAT_CONCURRENCY, files.length);
   let nextStat = 0;
   async function statWorker() {
     while (nextStat < files.length) {
       const i = nextStat++;
-      const { size } = await stat(path.join(filesDir, files[i].path));
-      files[i].size = size;
+      const st = await stat(absPaths[i]);
+      files[i].size = st.size;
+      mtimes[i] = st.mtimeMs;
     }
   }
-  await Promise.all(Array.from({ length: workerCount }, () => statWorker()));
+  if (statWorkers > 0) {
+    await Promise.all(Array.from({ length: statWorkers }, () => statWorker()));
+  }
 
-  let nextHash = 0;
+  const misses = [];
   let completed = 0;
-  async function hashWorker() {
-    while (nextHash < files.length) {
-      const i = nextHash++;
-      files[i].hash = await streamHash(createReadStream(path.join(filesDir, files[i].path)));
+  for (let i = 0; i < files.length; i += 1) {
+    const cached = uploadedHashCache.get(absPaths[i]);
+    if (cached && cached.size === files[i].size && cached.mtimeMs === mtimes[i]) {
+      files[i].hash = cached.hash;
       completed += 1;
-      manifestProgress.set(Number(gameId), { total: files.length, done: completed });
+    } else {
+      misses.push(i);
     }
   }
-  await Promise.all(Array.from({ length: workerCount }, () => hashWorker()));
+
+  if (completed > 0) {
+    manifestProgress.set(id, { total: files.length, done: completed });
+  }
+
+  if (misses.length > 0) {
+    await hashFiles(
+      misses.map((idx) => absPaths[idx]),
+      (missIdx, res) => {
+        const fileIdx = misses[missIdx];
+        files[fileIdx].hash = res.hash;
+        recordUploadedFileHash(absPaths[fileIdx], {
+          size: files[fileIdx].size,
+          mtimeMs: mtimes[fileIdx],
+          hash: res.hash,
+        });
+        completed += 1;
+        manifestProgress.set(id, { total: files.length, done: completed });
+      },
+    );
+  }
 
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-  const manifest = { game_id: Number(gameId), files };
-  await writeFile(gameManifestPath(gameId), JSON.stringify(manifest, null, 2));
-  manifestProgress.delete(Number(gameId));
+  const manifest = { game_id: id, files };
+  const manifestPath = gameManifestPath(id);
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  const mStat = await stat(manifestPath);
+  manifestCache.set(manifestPath, { mtimeMs: mStat.mtimeMs, size: mStat.size, ino: mStat.ino, manifest });
+  manifestProgress.delete(id);
   return { manifest, totalSize };
 }
 
@@ -84,6 +137,7 @@ export async function generateManifest(gameId) {
  */
 export async function purgeUploads(gameId) {
   const dir = gameUploadsDir(gameId);
+  clearInFlightHashes(dir);
   await rm(dir, { recursive: true, force: true });
 }
 
@@ -115,6 +169,9 @@ export async function processGame(gameId, { announce = () => {} } = {}) {
  * Delete a game entirely (files, manifest, cover, uploads).
  */
 export async function deleteGame(gameId) {
+  clearInFlightHashes(gameUploadsDir(gameId));
+  clearUploadedHashesForPrefix(gameFilesDir(gameId));
+  manifestCache.delete(gameManifestPath(gameId));
   await rm(gameDir(gameId), { recursive: true, force: true });
   getDb().prepare('DELETE FROM games WHERE id = ?').run(gameId);
   try {
@@ -136,9 +193,18 @@ export async function ensureGameDirs(gameId) {
 }
 
 export function loadManifest(gameId) {
+  const p = gameManifestPath(gameId);
   try {
-    return JSON.parse(readFileSync(gameManifestPath(gameId), 'utf8'));
+    const st = statSync(p);
+    const cached = manifestCache.get(p);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size && cached.ino === st.ino) {
+      return cached.manifest;
+    }
+    const manifest = JSON.parse(readFileSync(p, 'utf8'));
+    manifestCache.set(p, { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino, manifest });
+    return manifest;
   } catch {
+    manifestCache.delete(p);
     return null;
   }
 }

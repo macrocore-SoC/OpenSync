@@ -103,6 +103,32 @@ const MIGRATIONS = [
 ];
 
 let db = null;
+const statementCaches = new WeakMap();
+const MAX_CACHED_STATEMENTS = 512;
+
+function attachStatementCache(candidate) {
+  const cache = new Map();
+  statementCaches.set(candidate, cache);
+  const origPrepare = candidate.prepare.bind(candidate);
+  const origClose = candidate.close.bind(candidate);
+  candidate.prepare = (sql) => {
+    let stmt = cache.get(sql);
+    if (!stmt) {
+      stmt = origPrepare(sql);
+      if (cache.size >= MAX_CACHED_STATEMENTS) {
+        cache.delete(cache.keys().next().value);
+      }
+      cache.set(sql, stmt);
+    }
+    return stmt;
+  };
+  candidate.close = () => {
+    cache.clear();
+    statementCaches.delete(candidate);
+    if (db === candidate) db = null;
+    return origClose();
+  };
+}
 
 export function ensureStorage() {
   mkdirSync(STORAGE_ROOT, { recursive: true });
@@ -116,8 +142,13 @@ export function getDb() {
     const candidate = new DatabaseSync(DB_PATH);
     try {
       candidate.exec('PRAGMA journal_mode = WAL;');
+      candidate.exec('PRAGMA synchronous = NORMAL;');
+      candidate.exec('PRAGMA temp_store = MEMORY;');
+      candidate.exec('PRAGMA cache_size = -64000;');
+      candidate.exec('PRAGMA busy_timeout = 5000;');
       candidate.exec('PRAGMA foreign_keys = ON;');
       migrate(candidate);
+      attachStatementCache(candidate);
     } catch (err) {
       try {
         candidate.close();

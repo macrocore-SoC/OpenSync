@@ -79,8 +79,10 @@ syncRouter.post('/:id/overlay/files', async (req, res, next) => {
       index: Number(req.headers['x-index']),
       total: Number(req.headers['x-total']),
       declaredSize: Number(req.headers['x-size']),
+      declaredHash,
       req,
-      validate: (safePath, finalPath) => validateOverlayFile(req.user.id, req.params.id, safePath, declaredHash),
+      validate: (safePath, _finalPath, precomputed) =>
+        validateOverlayFile(req.user.id, req.params.id, safePath, declaredHash, precomputed),
     });
 
     if (result.done) {
@@ -89,6 +91,9 @@ syncRouter.post('/:id/overlay/files', async (req, res, next) => {
     res.json({ ok: true, done: false, received: result.received });
   } catch (err) {
     if (err.mismatch) return res.status(err.status || 422).json({ error: 'hash mismatch', mismatch: err.mismatch });
+    if (err.status === 409 && err.received !== undefined) {
+      return res.status(409).json({ error: err.message, received: err.received });
+    }
     next(err);
   }
 });
