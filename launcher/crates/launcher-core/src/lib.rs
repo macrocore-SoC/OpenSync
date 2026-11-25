@@ -3708,7 +3708,8 @@ mod path_safety_tests {
         let dir = tempdir().unwrap();
         let games_dir = dir.path().join("games");
         let install = install_dir_for_slug(&games_dir, "profile-1", "fogwoods").unwrap();
-        assert!(install.starts_with(games_dir.join("profile-1")));
+        let expected_base = std::fs::canonicalize(games_dir.join("profile-1")).unwrap();
+        assert!(install.starts_with(expected_base));
         assert_eq!(install.file_name().unwrap(), "fogwoods");
 
         let escape = dir.path().join("escaped");

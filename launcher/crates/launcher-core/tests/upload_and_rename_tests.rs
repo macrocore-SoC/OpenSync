@@ -371,5 +371,6 @@ async fn dropped_upload_stages_chunks_then_finalizes() {
         fs::read(installed.install_dir.join("saves/slot1.dat")).unwrap(),
         payload
     );
-    assert!(installed.install_dir.starts_with(dir.path().join("games")));
+    let expected_games = std::fs::canonicalize(dir.path().join("games")).unwrap();
+    assert!(installed.install_dir.starts_with(expected_games));
 }
