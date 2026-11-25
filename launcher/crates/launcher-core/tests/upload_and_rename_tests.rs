@@ -294,7 +294,10 @@ async fn picked_folder_upload_moves_into_games_dir_and_marks_installed() {
         .get_installed_game(&profile.id, game_id)
         .unwrap()
         .expect("uploaded game must be installed");
-    assert_eq!(installed.install_dir, expected_dir);
+    assert_eq!(
+        installed.install_dir,
+        fs::canonicalize(&expected_dir).unwrap()
+    );
     assert_eq!(installed.executable_rel_path.as_deref(), Some("mygame.sh"));
     assert!(installed.manifest_hash.is_some(), "clean manifest hash recorded");
     assert!(installed.total_size > 0);
