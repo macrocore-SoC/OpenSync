@@ -24,7 +24,7 @@ default-members = [
 version = "0.4.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/piskevalee-cpu/opensync-launcher"
+repository = "https://github.com/piskevalee-cpu/OpenSync"
 
 [workspace.dependencies]
 anyhow = "1.0"

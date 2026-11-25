@@ -1,15 +1,15 @@
 <!-- PROJECT SHIELDS -->
 <p align="center">
-  <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/stargazers"><img src="https://img.shields.io/github/stars/piskevalee-cpu/OpenSync-Launcher.svg?style=for-the-badge" alt="Stars"></a>
-  <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/network/members"><img src="https://img.shields.io/github/forks/piskevalee-cpu/OpenSync-Launcher.svg?style=for-the-badge" alt="Forks"></a>
-  <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/issues"><img src="https://img.shields.io/github/issues/piskevalee-cpu/OpenSync-Launcher.svg?style=for-the-badge" alt="Issues"></a>
-  <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/blob/main/LICENSE"><img src="https://img.shields.io/github/license/piskevalee-cpu/OpenSync-Launcher.svg?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/piskevalee-cpu/OpenSync/stargazers"><img src="https://img.shields.io/github/stars/piskevalee-cpu/OpenSync.svg?style=for-the-badge" alt="Stars"></a>
+  <a href="https://github.com/piskevalee-cpu/OpenSync/network/members"><img src="https://img.shields.io/github/forks/piskevalee-cpu/OpenSync.svg?style=for-the-badge" alt="Forks"></a>
+  <a href="https://github.com/piskevalee-cpu/OpenSync/issues"><img src="https://img.shields.io/github/issues/piskevalee-cpu/OpenSync.svg?style=for-the-badge" alt="Issues"></a>
+  <a href="https://github.com/piskevalee-cpu/OpenSync/blob/main/LICENSE"><img src="https://img.shields.io/github/license/piskevalee-cpu/OpenSync.svg?style=for-the-badge" alt="License"></a>
 </p>
 
 <!-- PROJECT LOGO -->
 <br />
 <div align="center" id="readme-top">
-  <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher">
+  <a href="https://github.com/piskevalee-cpu/OpenSync/tree/main/launcher">
     <img src="crates/launcher-tauri/icons/icon.png" alt="OpenSync Launcher" width="160">
   </a>
 
@@ -17,9 +17,9 @@
     Native desktop game cabinet and runner for self-hosted <a href="https://github.com/piskevalee-cpu/OpenSync">OpenSync</a> archives with Proton support, screen-time tracking, and automatic save sync.
     <br />
     <br />
-    <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/issues/new?labels=bug">Report Bug</a>
+    <a href="https://github.com/piskevalee-cpu/OpenSync/issues/new?labels=bug">Report Bug</a>
     &middot;
-    <a href="https://github.com/piskevalee-cpu/OpenSync-Launcher/issues/new?labels=enhancement">Request Feature</a>
+    <a href="https://github.com/piskevalee-cpu/OpenSync/issues/new?labels=enhancement">Request Feature</a>
   </p>
 </div>
 
@@ -97,32 +97,32 @@ You only need a running **[OpenSync](https://github.com/piskevalee-cpu/OpenSync)
 
 ### Installation
 
-Download prebuilt binaries for **`v0.1.0`** from [GitHub Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/tag/v0.1.0):
+Download prebuilt binaries for **`v0.4.0`** from [GitHub Releases](https://github.com/piskevalee-cpu/OpenSync/releases/tag/v0.4.0):
 
 #### Linux AppImage (amd64)
 
-[Download `OpenSync_Launcher_0.1.0_amd64.AppImage`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.AppImage), make it executable, and run:
+[Download `OpenSync_Launcher_0.4.0_amd64.AppImage`](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.AppImage), make it executable, and run:
 
 ```sh
-chmod +x OpenSync_Launcher_0.1.0_amd64.AppImage
-./OpenSync_Launcher_0.1.0_amd64.AppImage
+chmod +x OpenSync_Launcher_0.4.0_amd64.AppImage
+./OpenSync_Launcher_0.4.0_amd64.AppImage
 ```
 
 #### Linux Flatpak (amd64)
 
-Fetch from [v0.1.0 Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak) and install in one command:
+Fetch from [v0.4.0 Releases](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.flatpak) and install in one command:
 
 ```sh
-curl -fSL https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak -o /tmp/opensync.flatpak && flatpak install --user -y /tmp/opensync.flatpak && flatpak run io.opensync.launcher
+curl -fSL https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.flatpak -o /tmp/opensync.flatpak && flatpak install --user -y /tmp/opensync.flatpak && flatpak run io.opensync.launcher
 ```
 
 #### Windows (x64)
 
-[Download `OpenSync_Launcher_0.1.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_x64.exe) and run directly.
+[Download `OpenSync_Launcher_0.4.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_x64.exe) and run directly.
 
 #### macOS (Apple Silicon & Intel)
 
-Download the `.dmg` for your Mac from [GitHub Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases):
+Download the `.dmg` for your Mac from [GitHub Releases](https://github.com/piskevalee-cpu/OpenSync/releases):
 
 * **Apple Silicon (M1/M2/M3…)**: `OpenSync_Launcher_<version>_aarch64.dmg`
 * **Intel**: `OpenSync_Launcher_<version>_x86_64.dmg`
@@ -165,8 +165,8 @@ You only need to do this once per downloaded build. Notarization is planned for 
 #### Compile & Run
 
 ```sh
-git clone https://github.com/piskevalee-cpu/OpenSync-Launcher.git
-cd OpenSync-Launcher
+git clone https://github.com/piskevalee-cpu/OpenSync.git
+cd OpenSync/launcher
 cargo build --release -p launcher-tauri
 ```
 
@@ -252,7 +252,7 @@ the dark window background.
 - [ ] Pre-launch remote save conflict prompt (keep local vs. pull newer server overlay)
 - [ ] Native `.rpm` / `.deb` release packages
 
-See the [open issues](https://github.com/piskevalee-cpu/OpenSync-Launcher/issues) for a full list of proposed features (and known issues).
+See the [open issues](https://github.com/piskevalee-cpu/OpenSync/issues) for a full list of proposed features (and known issues).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

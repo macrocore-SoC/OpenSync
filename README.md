@@ -96,18 +96,18 @@ OpenSync has two components: the **Self-Hosted Server** (runs on your Linux mach
 
 ### 1. Desktop Launcher Install
 
-Download the latest **`v0.1.0`** binaries directly from [OpenSync Launcher Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/tag/v0.1.0):
+Download the latest **`v0.4.0`** binaries directly from [OpenSync Releases](https://github.com/piskevalee-cpu/OpenSync/releases/tag/v0.4.0):
 
-* **Linux AppImage (amd64)** — [Download `OpenSync_Launcher_0.1.0_amd64.AppImage`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.AppImage)
+* **Linux AppImage (amd64)** — [Download `OpenSync_Launcher_0.4.0_amd64.AppImage`](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.AppImage)
   ```sh
-  chmod +x OpenSync_Launcher_0.1.0_amd64.AppImage
-  ./OpenSync_Launcher_0.1.0_amd64.AppImage
+  chmod +x OpenSync_Launcher_0.4.0_amd64.AppImage
+  ./OpenSync_Launcher_0.4.0_amd64.AppImage
   ```
-* **Linux Flatpak (amd64)** — 1-command fetch & install from [v0.1.0 Releases](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak):
+* **Linux Flatpak (amd64)** — 1-command fetch & install from [v0.4.0 Releases](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.flatpak):
   ```sh
-  curl -fSL https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_amd64.flatpak -o /tmp/opensync.flatpak && flatpak install --user -y /tmp/opensync.flatpak && flatpak run io.opensync.launcher
+  curl -fSL https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_amd64.flatpak -o /tmp/opensync.flatpak && flatpak install --user -y /tmp/opensync.flatpak && flatpak run io.opensync.launcher
   ```
-* **Windows (x64)** — [Download `OpenSync_Launcher_0.1.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync-Launcher/releases/download/v0.1.0/OpenSync_Launcher_0.1.0_x64.exe)
+* **Windows (x64)** — [Download `OpenSync_Launcher_0.4.0_x64.exe`](https://github.com/piskevalee-cpu/OpenSync/releases/download/v0.4.0/OpenSync_Launcher_0.4.0_x64.exe)
 
 ### 2. Server Install
 
@@ -159,12 +159,12 @@ Install Tauri system packages first on Linux:
 Then build and run from source:
 
 ```sh
-git clone https://github.com/piskevalee-cpu/OpenSync-Launcher.git
-cd OpenSync-Launcher
+git clone https://github.com/piskevalee-cpu/OpenSync.git
+cd OpenSync/launcher
 cargo build --release -p launcher-tauri
 ```
 
-The compiled executable is output to `target/release/opensync-launcher` (or `target/release/opensync-launcher.exe` on Windows).
+The compiled executable is output to `launcher/target/release/opensync-launcher` (or `launcher/target/release/opensync-launcher.exe` on Windows).
 
 ### Prerequisites & Configuration
 
