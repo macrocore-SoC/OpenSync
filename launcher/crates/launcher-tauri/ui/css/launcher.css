@@ -105,13 +105,13 @@ body {
   overflow-x: hidden;
 }
 
-/* Subtle pre-blurred cover hero backdrop (fades in on Library card hover and Game Detail). */
+/* Color-only ambient backdrop extracted from cover art (fades in on Library card hover and Game Detail). */
 .detail-hero-bg {
   position: fixed;
   top: 60px;
   left: 0;
   right: 0;
-  height: clamp(220px, 34vh, 380px);
+  height: clamp(240px, 38vh, 420px);
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
@@ -145,21 +145,16 @@ body {
   );
 }
 
-.detail-hero-img {
+.detail-hero-layer {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 25%;
-  display: block;
   opacity: 0;
   transition: opacity 0.38s var(--ease);
   will-change: opacity;
 }
 
-.detail-hero-img.is-visible {
-  opacity: 0.52;
+.detail-hero-layer.is-visible {
+  opacity: 1;
 }
 
 body.has-gamepad-bar {

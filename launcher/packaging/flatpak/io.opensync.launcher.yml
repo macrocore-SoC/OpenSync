@@ -22,6 +22,9 @@ finish-args:
   # GNOME 49 no longer provides its own i386 compat extension, so expose the
   # freedesktop one explicitly and let the loader find the installed 32-bit libs.
   - --env=LD_LIBRARY_PATH=/app/lib/i386-linux-gnu
+  # GNOME 49's WebKitGTK DMA-BUF compositor causes glitched/stuttering
+  # section-switch animations inside the Flatpak sandbox.
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
 
 # Do not use `inherit-extensions` here: it copies extension points from the parent
 # runtime's metadata, and org.gnome.Platform 49 no longer declares the i386/GL32

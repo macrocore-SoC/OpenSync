@@ -275,7 +275,7 @@ const state = {
   library: [],
   coverCache: new Map(), // game_id -> dataUrl | null
   coverPending: new Set(),
-  heroBlurCache: new Map(), // `${profileId}_${gameId}` -> pre-blurred dataUrl | null
+  heroColorCache: new Map(), // `${profileId}_${gameId}` -> CSS gradient string | null
   playingGameIds: new Set(),
   syncingGameIds: new Set(),
   uninstallingGameIds: new Set(),
@@ -524,7 +524,7 @@ function createCssSelect({ options, value = '', onChange, disabled = false, aria
 const viewEl = document.getElementById('view');
 const topbarEl = document.getElementById('topbar');
 const detailHeroBg = document.getElementById('detail-hero-bg');
-const detailHeroImgs = detailHeroBg ? [...detailHeroBg.querySelectorAll('.detail-hero-img')] : [];
+const detailHeroLayers = detailHeroBg ? [...detailHeroBg.querySelectorAll('.detail-hero-layer')] : [];
 const profileSwitcherEl = document.getElementById('profile-switcher');
 const statusRightEl = document.getElementById('status-right');
 const modalRoot = document.getElementById('modal-root');
@@ -672,20 +672,21 @@ function fadeOutHero() {
   heroSeq += 1;
   if (!detailHeroBg) return;
   detailHeroBg.classList.remove('is-active');
-  for (const img of detailHeroImgs) {
-    img.classList.remove('is-visible');
+  for (const layer of detailHeroLayers) {
+    layer.classList.remove('is-visible');
   }
 }
 
 function scheduleClearHero(gameId, delayMs = 95) {
   cancelHeroFadeTimer();
+  if (state.view !== 'library') return;
   if (delayMs <= 0) {
     if (gameId == null || heroHoverGameId === gameId) fadeOutHero();
     return;
   }
   heroFadeOutTimer = window.setTimeout(() => {
     heroFadeOutTimer = null;
-    if (gameId == null || heroHoverGameId === gameId) {
+    if (state.view === 'library' && (gameId == null || heroHoverGameId === gameId)) {
       fadeOutHero();
     }
   }, delayMs);
@@ -698,13 +699,72 @@ function clearDetailHero() {
   if (!detailHeroBg) return;
   detailHeroBg.hidden = true;
   detailHeroBg.classList.remove('is-active');
-  for (const img of detailHeroImgs) {
-    img.classList.remove('is-visible');
-    img.removeAttribute('src');
+  for (const layer of detailHeroLayers) {
+    layer.classList.remove('is-visible');
+    layer.style.backgroundImage = '';
+    delete layer.dataset.grad;
   }
 }
 
-function makeBlurredHeroDataUrl(srcUrl) {
+function rgbToHsl(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  return [h / 6, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (s <= 0) {
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
+  const hue2rgb = (p, q, t) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
+function tuneHeroColor([r, g, b]) {
+  const [h, s, l] = rgbToHsl(r, g, b);
+  if (s < 0.08) {
+    const clampedL = Math.max(0.28, Math.min(0.40, l));
+    return hslToRgb(0.60, 0.10, clampedL);
+  }
+  const tunedS = Math.max(0.30, Math.min(0.78, s * 1.25));
+  const tunedL = Math.max(0.30, Math.min(0.52, l));
+  return hslToRgb(h, tunedS, tunedL);
+}
+
+function colorDistSq(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+function extractHeroColorGradient(srcUrl) {
   return new Promise((resolve) => {
     if (!srcUrl || typeof document === 'undefined') {
       resolve(null);
@@ -720,40 +780,122 @@ function makeBlurredHeroDataUrl(srcUrl) {
           resolve(null);
           return;
         }
-        // Multi-step small offscreen downscale produces a smooth edge-free wash
-        // in WebKitGTK with near-zero CPU/GPU work during scroll or switching.
-        const insetW = Math.max(1, Math.round(w * 0.88));
-        const insetH = Math.max(1, Math.round(h * 0.62));
-        const sx = Math.round((w - insetW) * 0.5);
-        const sy = Math.round((h - insetH) * 0.25);
-
-        const c1 = document.createElement('canvas');
-        c1.width = 48;
-        c1.height = 27;
-        const ctx1 = c1.getContext('2d');
-        if (!ctx1) {
+        const cw = 24;
+        const ch = 36;
+        const canvas = document.createElement('canvas');
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
           resolve(null);
           return;
         }
-        ctx1.imageSmoothingEnabled = true;
-        ctx1.imageSmoothingQuality = 'high';
-        ctx1.drawImage(img, sx, sy, insetW, insetH, 0, 0, 48, 27);
+        ctx.drawImage(img, 0, 0, cw, ch);
+        const { data } = ctx.getImageData(0, 0, cw, ch);
 
-        const c2 = document.createElement('canvas');
-        c2.width = 96;
-        c2.height = 54;
-        const ctx2 = c2.getContext('2d');
-        if (!ctx2) {
+        const buckets = new Map();
+        const rightHalfSum = [0, 0, 0, 0];
+        const allSum = [0, 0, 0, 0];
+
+        for (let y = 0; y < ch; y += 1) {
+          for (let x = 0; x < cw; x += 1) {
+            const idx = (y * cw + x) * 4;
+            const a = data[idx + 3];
+            if (a < 32) continue;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+
+            allSum[0] += r;
+            allSum[1] += g;
+            allSum[2] += b;
+            allSum[3] += 1;
+            if (x >= cw / 2) {
+              rightHalfSum[0] += r;
+              rightHalfSum[1] += g;
+              rightHalfSum[2] += b;
+              rightHalfSum[3] += 1;
+            }
+
+            const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+            if (luma < 14 || luma > 242) continue;
+
+            const [, sat] = rgbToHsl(r, g, b);
+            const weight = 0.25 + sat * 1.9;
+            const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+            let bucket = buckets.get(key);
+            if (!bucket) {
+              bucket = { rSum: 0, gSum: 0, bSum: 0, count: 0, score: 0, satSum: 0 };
+              buckets.set(key, bucket);
+            }
+            bucket.rSum += r;
+            bucket.gSum += g;
+            bucket.bSum += b;
+            bucket.count += 1;
+            bucket.score += weight;
+            bucket.satSum += sat;
+          }
+        }
+
+        if (allSum[3] === 0) {
           resolve(null);
           return;
         }
-        ctx2.imageSmoothingEnabled = true;
-        ctx2.imageSmoothingQuality = 'high';
-        if ('filter' in ctx2) {
-          ctx2.filter = 'blur(4px)';
+
+        const avgAll = [
+          allSum[0] / allSum[3],
+          allSum[1] / allSum[3],
+          allSum[2] / allSum[3],
+        ];
+        const avgRight = rightHalfSum[3] > 0
+          ? [
+              rightHalfSum[0] / rightHalfSum[3],
+              rightHalfSum[1] / rightHalfSum[3],
+              rightHalfSum[2] / rightHalfSum[3],
+            ]
+          : avgAll;
+
+        const candidates = [...buckets.values()]
+          .map((bkt) => ({
+            rgb: [bkt.rSum / bkt.count, bkt.gSum / bkt.count, bkt.bSum / bkt.count],
+            score: bkt.score,
+            avgSat: bkt.satSum / bkt.count,
+          }))
+          .sort((a, b) => b.score - a.score);
+
+        const primaryRaw = candidates[0]?.rgb || avgAll;
+
+        let secondaryRaw = avgRight;
+        let bestSecondaryScore = -1;
+        for (const c of candidates.slice(0, 12)) {
+          const dist = colorDistSq(c.rgb, primaryRaw);
+          if (dist < 900) continue;
+          const combined = Math.sqrt(dist) * (0.4 + c.score);
+          if (combined > bestSecondaryScore) {
+            bestSecondaryScore = combined;
+            secondaryRaw = c.rgb;
+          }
         }
-        ctx2.drawImage(c1, 0, 0, 96, 54);
-        resolve(c2.toDataURL('image/jpeg', 0.82));
+
+        let accentRaw = primaryRaw;
+        let bestAccentScore = -1;
+        for (const c of candidates.slice(0, 16)) {
+          const accentScore = c.avgSat * Math.log1p(c.score) * (colorDistSq(c.rgb, secondaryRaw) > 500 ? 1.15 : 1);
+          if (accentScore > bestAccentScore) {
+            bestAccentScore = accentScore;
+            accentRaw = c.rgb;
+          }
+        }
+
+        const [r1, g1, b1] = tuneHeroColor(primaryRaw);
+        const [r2, g2, b2] = tuneHeroColor(secondaryRaw);
+        const [r3, g3, b3] = tuneHeroColor(accentRaw);
+
+        resolve([
+          `radial-gradient(ellipse 68% 92% at 18% 8%, rgba(${r1}, ${g1}, ${b1}, 0.44) 0%, rgba(${r1}, ${g1}, ${b1}, 0.14) 46%, transparent 78%)`,
+          `radial-gradient(ellipse 62% 88% at 78% 14%, rgba(${r2}, ${g2}, ${b2}, 0.34) 0%, rgba(${r2}, ${g2}, ${b2}, 0.10) 48%, transparent 80%)`,
+          `radial-gradient(ellipse 50% 75% at 48% 26%, rgba(${r3}, ${g3}, ${b3}, 0.24) 0%, transparent 74%)`,
+        ].join(', '));
       } catch {
         resolve(null);
       }
@@ -784,53 +926,55 @@ async function applyHeroForGame(game, mode) {
 
   const coverUrl = state.coverCache.get(game.game_id);
   if (!coverUrl) {
-    for (const img of detailHeroImgs) img.classList.remove('is-visible');
+    for (const layer of detailHeroLayers) layer.classList.remove('is-visible');
     if (game.has_cover) ensureCover(game);
     return;
   }
 
   const key = heroCacheKey(state.activeProfile?.id, game.game_id);
-  let blurredUrl = state.heroBlurCache.get(key);
-  if (blurredUrl === undefined) {
-    blurredUrl = await makeBlurredHeroDataUrl(coverUrl);
-    state.heroBlurCache.set(key, blurredUrl);
+  let gradient = state.heroColorCache.get(key);
+  if (gradient === undefined) {
+    gradient = await extractHeroColorGradient(coverUrl);
+    state.heroColorCache.set(key, gradient);
   }
   if (seq !== heroSeq || !isHeroStillValid(game.game_id, mode)) {
     return;
   }
-  if (!blurredUrl || detailHeroImgs.length === 0) {
-    for (const img of detailHeroImgs) img.classList.remove('is-visible');
+  if (!gradient || detailHeroLayers.length === 0) {
+    for (const layer of detailHeroLayers) layer.classList.remove('is-visible');
     return;
   }
 
-  const currentImg = detailHeroImgs[heroActiveLayer];
-  if (currentImg && currentImg.getAttribute('src') === blurredUrl && currentImg.classList.contains('is-visible')) {
+  const currentLayer = detailHeroLayers[heroActiveLayer];
+  if (currentLayer && currentLayer.dataset.grad === gradient && currentLayer.classList.contains('is-visible')) {
     return;
   }
 
-  const nextLayer = detailHeroImgs.length > 1 ? (heroActiveLayer + 1) % detailHeroImgs.length : 0;
-  const nextImg = detailHeroImgs[nextLayer];
-  heroActiveLayer = nextLayer;
+  const nextLayerIdx = detailHeroLayers.length > 1 ? (heroActiveLayer + 1) % detailHeroLayers.length : 0;
+  const nextLayer = detailHeroLayers[nextLayerIdx];
+  heroActiveLayer = nextLayerIdx;
 
-  if (nextImg.getAttribute('src') !== blurredUrl) {
-    nextImg.classList.remove('is-visible');
-    nextImg.src = blurredUrl;
+  if (nextLayer.dataset.grad !== gradient) {
+    nextLayer.classList.remove('is-visible');
+    nextLayer.dataset.grad = gradient;
+    nextLayer.style.backgroundImage = gradient;
   }
-  void nextImg.offsetWidth;
-  nextImg.classList.add('is-visible');
-  for (let i = 0; i < detailHeroImgs.length; i += 1) {
+  void nextLayer.offsetWidth;
+  nextLayer.classList.add('is-visible');
+  for (let i = 0; i < detailHeroLayers.length; i += 1) {
     if (i !== heroActiveLayer) {
-      detailHeroImgs[i].classList.remove('is-visible');
+      detailHeroLayers[i].classList.remove('is-visible');
     }
   }
 }
 
 function syncDetailHero(game) {
+  heroHoverGameId = null;
   return applyHeroForGame(game, 'detail');
 }
 
 function showLibraryHoverHero(game) {
-  if (!game) return;
+  if (!game || state.view !== 'library') return;
   heroHoverGameId = game.game_id;
   return applyHeroForGame(game, 'hover');
 }
@@ -1528,25 +1672,18 @@ function updateUploadStatusPill() {
   }
 }
 
-let activeViewAnim = null;
-let viewSwitchRaf = null;
 let viewSwitchTimer = null;
+let viewSwitchEndHandler = null;
 let viewRenderSeq = 0;
 
 function clearPendingViewSwitch() {
-  if (viewSwitchRaf !== null) {
-    cancelAnimationFrame(viewSwitchRaf);
-    viewSwitchRaf = null;
-  }
   if (viewSwitchTimer !== null) {
     clearTimeout(viewSwitchTimer);
     viewSwitchTimer = null;
   }
-  if (activeViewAnim) {
-    activeViewAnim.onfinish = null;
-    activeViewAnim.oncancel = null;
-    try { activeViewAnim.cancel(); } catch { /* ignore */ }
-    activeViewAnim = null;
+  if (viewEl && viewSwitchEndHandler) {
+    viewEl.removeEventListener('animationend', viewSwitchEndHandler);
+    viewSwitchEndHandler = null;
   }
   if (viewEl) {
     viewEl.classList.remove('view-switch');
@@ -1605,10 +1742,7 @@ function renderCurrentView(animate = false) {
   }
 
   const reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
-  const canAnimate = Boolean(animate && !reducedMotion && typeof viewEl.animate === 'function');
-  if (canAnimate) {
-    viewEl.style.opacity = '0';
-  }
+  const canAnimate = Boolean(animate && !reducedMotion && viewEl);
 
   switch (state.view) {
     case 'library':
@@ -1635,28 +1769,19 @@ function renderCurrentView(animate = false) {
 
   syncFabVisibility();
   if (canAnimate) {
-    viewSwitchRaf = requestAnimationFrame(() => {
-      viewSwitchRaf = null;
+    void viewEl.offsetWidth;
+    viewEl.classList.add('view-switch');
+    const finish = () => {
       if (seq !== viewRenderSeq) return;
-      try {
-        activeViewAnim = viewEl.animate(
-          [
-            { opacity: 0 },
-            { opacity: 1 },
-          ],
-          { duration: 120, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
-        );
-        const finish = () => {
-          if (seq !== viewRenderSeq) return;
-          clearPendingViewSwitch();
-        };
-        activeViewAnim.onfinish = finish;
-        activeViewAnim.oncancel = finish;
-        viewSwitchTimer = window.setTimeout(finish, 180);
-      } catch {
-        clearPendingViewSwitch();
+      clearPendingViewSwitch();
+    };
+    viewSwitchEndHandler = (e) => {
+      if (e.target === viewEl && e.animationName === 'view-switch-in') {
+        finish();
       }
-    });
+    };
+    viewEl.addEventListener('animationend', viewSwitchEndHandler);
+    viewSwitchTimer = window.setTimeout(finish, 220);
   }
 
   gamepadCtrl?.onViewRendered();
