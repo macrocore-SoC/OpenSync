@@ -1,15 +1,12 @@
 import { Router } from 'express';
 import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { DEFAULT_PFP_URL, GAMES_ROOT, USERS_ROOT } from '../config.js';
 import { getDb, now } from '../db.js';
 import { requireAdmin } from '../security.js';
 import { hashPassword } from '../security.js';
 import { cleanUsername, MAX_USERNAME_LENGTH, normalizeUsername } from '../usernames.js';
-
-const require = createRequire(import.meta.url);
-const { ZipArchive } = require('archiver');
+import { benchmarkZipBuffer } from '../zip.js';
 
 export const adminRouter = Router();
 
@@ -36,21 +33,12 @@ adminRouter.get('/bench', async (req, res, next) => {
     const MB = 64;
     const data = Buffer.allocUnsafe(MB * 1024 * 1024);
     for (let i = 0; i < data.length; i += 4) data.writeUInt32LE((i * 2654435761) >>> 0, i);
-    const run = (level) =>
-      new Promise((resolve, reject) => {
-        const start = process.hrtime.bigint();
-        let bytes = 0;
-        const archive = new ZipArchive({ zlib: { level } });
-        archive.on('data', (c) => { bytes += c.length; });
-        archive.on('end', () => {
-          const secs = Number(process.hrtime.bigint() - start) / 1e9;
-          resolve({ method: level === 0 ? 'store' : `deflate-${level}`, mbps: Math.round((MB / secs) * 10) / 10, out_mb: Math.round((bytes / 1048576) * 10) / 10 });
-        });
-        archive.on('error', reject);
-        archive.append(data, { name: 'bench.bin' });
-        archive.finalize();
-      });
-    res.json({ sample_mb: MB, results: await Promise.all([run(0), run(1), run(6)]) });
+    const results = [
+      await benchmarkZipBuffer(data, 0),
+      await benchmarkZipBuffer(data, 1),
+      await benchmarkZipBuffer(data, 6),
+    ];
+    res.json({ sample_mb: MB, results });
   } catch (err) {
     next(err);
   }

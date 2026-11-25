@@ -1,15 +1,11 @@
 import { Router } from 'express';
-import { createReadStream } from 'node:fs';
-import { createRequire } from 'node:module';
 import { getDb, now } from '../db.js';
 import { loadManifest } from '../manifest.js';
 import { effectiveFiles } from '../overlay.js';
 import { gameFilesDir, overlayDir } from '../storage.js';
 import { requireAuth } from '../security.js';
+import { streamZipFiles } from '../zip.js';
 import path from 'node:path';
-
-const require = createRequire(import.meta.url);
-const { ZipArchive } = require('archiver');
 
 export const downloadRouter = Router();
 
@@ -42,30 +38,31 @@ downloadRouter.get('/:id/download', async (req, res, next) => {
     const deflate = Number(req.query.deflate);
     const level = Number.isInteger(deflate) && deflate >= 1 && deflate <= 9 ? deflate : 0;
 
+    req.socket?.setNoDelay(true);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${slugFor(game.name)}.zip"`);
     res.flushHeaders();
 
-    const archive = new ZipArchive({ zlib: { level } });
-    archive.on('error', (err) => {
-      console.error(`[opensync] zip error game=${gameId}:`, err.message);
-      res.destroy(err);
-    });
-
-    for (const f of files) {
-      const abs =
+    const entries = files.map((f) => ({
+      path: f.path,
+      absPath:
         f.source === 'overlay'
           ? path.join(overlayDir(req.user.id, gameId), f.path)
-          : path.join(gameFilesDir(gameId), f.path);
-      archive.file(abs, { name: f.path });
-    }
+          : path.join(gameFilesDir(gameId), f.path),
+    }));
 
     getDb()
       .prepare('INSERT INTO downloads (user_id, game_id, created_at) VALUES (?, ?, ?)')
       .run(req.user.id, gameId, now());
 
-    archive.pipe(res);
-    archive.finalize();
+    try {
+      await streamZipFiles(entries, res, { level });
+    } catch (err) {
+      if (!res.destroyed) {
+        console.error(`[opensync] zip error game=${gameId}:`, err.message);
+        res.destroy(err);
+      }
+    }
   } catch (err) {
     next(err);
   }
