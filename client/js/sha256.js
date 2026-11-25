@@ -5,7 +5,7 @@
  * This module implements SHA-256 incrementally (RFC 6234 / FIPS 180-4).
  */
 
-const K = [
+const K = new Int32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
   0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -14,19 +14,19 @@ const K = [
   0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-];
+]);
 
-const H0 = [
+const H0 = new Int32Array([
   0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-];
+]);
 
-function rotr(x, n) {
-  return (x >>> n) | (x << (32 - n));
-}
+const textEncoder = new TextEncoder();
+const SUBTLE_MAX_BYTES = 32 * 1024 * 1024;
 
 export class Sha256 {
   constructor() {
     this._h = H0.slice();
+    this._w = new Int32Array(64);
     this._buf = new Uint8Array(64);
     this._bufLen = 0;
     this._total = 0;
@@ -35,48 +35,60 @@ export class Sha256 {
 
   update(input) {
     if (this._finalized) throw new Error('Sha256 already finalized');
-    if (typeof input === 'string') input = new TextEncoder().encode(input);
-    let data = input;
-    this._total += data.length;
+    const data = typeof input === 'string' ? textEncoder.encode(input) : input;
+    const len = data.length;
+    this._total += len;
+    let offset = 0;
     if (this._bufLen > 0) {
       const need = 64 - this._bufLen;
-      const take = Math.min(need, data.length);
-      this._buf.set(data.subarray(0, take), this._bufLen);
+      const take = need < len ? need : len;
+      this._buf.set(take === len ? data : data.subarray(0, take), this._bufLen);
       this._bufLen += take;
-      data = data.subarray(take);
+      offset += take;
       if (this._bufLen === 64) {
-        this._block(this._buf);
+        this._block(this._buf, 0);
         this._bufLen = 0;
       }
     }
-    while (data.length >= 64) {
-      this._block(data.subarray(0, 64));
-      data = data.subarray(64);
+    while (offset + 64 <= len) {
+      this._block(data, offset);
+      offset += 64;
     }
-    if (data.length > 0) {
-      this._buf.set(data, 0);
-      this._bufLen = data.length;
+    const rem = len - offset;
+    if (rem > 0) {
+      this._buf.set(offset === 0 ? data : data.subarray(offset), 0);
+      this._bufLen = rem;
     }
     return this;
   }
 
-  _block(block) {
-    const w = new Int32Array(64);
+  _block(data, offset) {
+    const w = this._w;
     for (let i = 0; i < 16; i++) {
-      w[i] = (block[i * 4] << 24) | (block[i * 4 + 1] << 16) | (block[i * 4 + 2] << 8) | block[i * 4 + 3];
+      const j = offset + i * 4;
+      w[i] = (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | data[j + 3];
     }
     for (let i = 16; i < 64; i++) {
-      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
-      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      const w15 = w[i - 15];
+      const w2 = w[i - 2];
+      const s0 = ((w15 >>> 7) | (w15 << 25)) ^ ((w15 >>> 18) | (w15 << 14)) ^ (w15 >>> 3);
+      const s1 = ((w2 >>> 17) | (w2 << 15)) ^ ((w2 >>> 19) | (w2 << 13)) ^ (w2 >>> 10);
       w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
     }
 
-    let [a, b, c, d, e, f, g, h] = this._h;
+    let a = this._h[0];
+    let b = this._h[1];
+    let c = this._h[2];
+    let d = this._h[3];
+    let e = this._h[4];
+    let f = this._h[5];
+    let g = this._h[6];
+    let h = this._h[7];
     for (let i = 0; i < 64; i++) {
-      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
       const ch = (e & f) ^ (~e & g);
       const temp1 = (h + S1 + ch + K[i] + w[i]) | 0;
-      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
       const maj = (a & b) ^ (a & c) ^ (b & c);
       const temp2 = (S0 + maj) | 0;
       h = g;
@@ -133,8 +145,16 @@ export class Sha256 {
   }
 }
 
-/** Hash a File object in a streaming fashion (memory-bounded). */
+/** Hash a File object in a streaming fashion (memory-bounded), using hardware-accelerated Web Crypto for <=32 MB files. */
 export async function hashFile(file) {
+  if (globalThis.crypto?.subtle && typeof file.arrayBuffer === 'function' && file.size <= SUBTLE_MAX_BYTES) {
+    const buf = await file.arrayBuffer();
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', buf);
+    const bytes = new Uint8Array(digest);
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+    return hex;
+  }
   const hasher = new Sha256();
   const reader = file.stream().getReader();
   try {

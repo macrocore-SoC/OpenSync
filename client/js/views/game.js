@@ -570,13 +570,16 @@ async function runSync(el, game, files) {
   const local = new Map(files.map((f) => [f.webkitRelativePath, f]));
   const manifest = await api.games.manifest(game.id);
 
+  const hashEntries = Array.from(local.entries());
+  const HASH_CONCURRENCY = 4;
+  let hashIdx = 0;
   let hashed = 0;
-  for (const [relPath, file] of local) {
-    if (syncSession?.cancelled) return;
+  let lastHashUi = 0;
+  function updateHashUi(relPath, force = false) {
+    const now = performance.now();
+    if (!force && now - lastHashUi < 100) return;
+    lastHashUi = now;
     p2.textContent = `Hashing ${relPath} …`;
-    const hash = await hashFile(file);
-    local.set(relPath, { file, hash });
-    hashed += 1;
     const pct = Math.round((hashed / Math.max(1, local.size)) * 100);
     bar.style.width = `${pct}%`;
     if (syncSession) {
@@ -584,6 +587,20 @@ async function runSync(el, game, files) {
       updateSyncBar();
     }
   }
+  async function hashWorker() {
+    while (hashIdx < hashEntries.length) {
+      if (syncSession?.cancelled) return;
+      const [relPath, file] = hashEntries[hashIdx++];
+      updateHashUi(relPath);
+      const hash = await hashFile(file);
+      if (syncSession?.cancelled) return;
+      local.set(relPath, { file, hash });
+      hashed += 1;
+      updateHashUi(relPath, hashed === local.size);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(HASH_CONCURRENCY, hashEntries.length) }, hashWorker));
+  if (syncSession?.cancelled) return;
   p1.textContent = 'Comparing local files with server';
 
   const clean = new Map(manifest.files.map((f) => [f.path, f]));
@@ -641,11 +658,30 @@ async function runSync(el, game, files) {
     updateSyncBar();
   }
 
-  for (const u of uploads) {
-    if (syncSession?.cancelled) return;
-    p2.textContent = `${u.kind === 'new' ? '+' : '~'} ${u.path}`;
-    const totalChunks = Math.max(1, Math.ceil(u.file.size / chunkSize));
-    try {
+  const UPLOAD_CONCURRENCY = 4;
+  let uploadIdx = 0;
+  let lastUploadUi = 0;
+  let syncAborted = false;
+  function updateUploadUi(label, force = false) {
+    const now = performance.now();
+    if (!force && now - lastUploadUi < 100) return;
+    lastUploadUi = now;
+    if (label) p2.textContent = label;
+    bar.style.width = `${Math.round((uploadedBytes / Math.max(1, totalBytes)) * 100)}%`;
+    if (syncSession) {
+      syncSession.uploaded = uploadedBytes;
+      syncSession.doneCount = doneCount;
+      updateSyncBar();
+    }
+  }
+
+  async function uploadWorker() {
+    while (uploadIdx < uploads.length) {
+      if (syncAborted || syncSession?.cancelled) return;
+      const u = uploads[uploadIdx++];
+      const label = `${u.kind === 'new' ? '+' : '~'} ${u.path}`;
+      p2.textContent = label;
+      const totalChunks = Math.max(1, Math.ceil(u.file.size / chunkSize));
       await uploadChunks({
         url: `/api/games/${game.id}/overlay/files`,
         path: u.path,
@@ -657,29 +693,33 @@ async function runSync(el, game, files) {
         onProgress: (bytes, done) => {
           uploadedBytes += bytes - (u._prevBytes || 0);
           u._prevBytes = bytes;
-          bar.style.width = `${Math.round((uploadedBytes / Math.max(1, totalBytes)) * 100)}%`;
-          if (done === totalChunks) doneCount += 1;
-          if (syncSession) {
-            syncSession.uploaded = uploadedBytes;
-            syncSession.doneCount = doneCount;
-            updateSyncBar();
-          }
+          const isDone = done === totalChunks;
+          if (isDone) doneCount += 1;
+          updateUploadUi(label, isDone);
         },
       });
-    } catch (e) {
-      if (e.name === 'AbortError' || syncSession?.cancelled) {
-        p1.textContent = 'Sync cancelled';
-        endSync();
-        return;
-      }
-      endSync();
-      if (e.code === 'RESUME_REQUIRED') {
-        toast('Upload state changed mid-sync; retry', 'warn');
-        return;
-      }
-      throw e;
     }
   }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, uploads.length) }, uploadWorker));
+  } catch (e) {
+    syncAborted = true;
+    controller.abort();
+    if (e.name === 'AbortError' || syncSession?.cancelled) {
+      p1.textContent = 'Sync cancelled';
+      endSync();
+      return;
+    }
+    endSync();
+    if (e.code === 'RESUME_REQUIRED') {
+      toast('Upload state changed mid-sync; retry', 'warn');
+      return;
+    }
+    throw e;
+  }
+  if (syncSession?.cancelled) return;
+  updateUploadUi(null, true);
 
   p1.textContent = 'Finalizing sync…';
   bar.style.width = '100%';

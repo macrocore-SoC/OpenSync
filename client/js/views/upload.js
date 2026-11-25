@@ -488,11 +488,15 @@ function buildUploadView() {
       return row;
     }
 
-    function updateOverall() {
+    let lastOverallUpdate = 0;
+    function updateOverall(force = false) {
+      const now = performance.now();
+      if (!force && now - lastOverallUpdate < 100) return;
+      lastOverallUpdate = now;
+
       const pct = total > 0 ? Math.round((uploaded / total) * 100) : 100;
       overallBar.style.width = `${pct}%`;
 
-      const now = performance.now();
       const dt = now - prevTime;
       prevTime = now;
       if (dt > 0) {
@@ -518,12 +522,13 @@ function buildUploadView() {
       }
     }
 
-    const CONCURRENCY = 3;
+    const CONCURRENCY = 6;
+    const uploadQueue = [...fileList].sort((a, b) => b.size - a.size);
     let idx = 0;
     async function worker() {
-      while (idx < fileList.length) {
+      while (idx < uploadQueue.length) {
         if (cancelled || session?.cancelled) return;
-        const f = fileList[idx++];
+        const f = uploadQueue[idx++];
         const r = rows.get(f.webkitRelativePath);
         const totalChunks = Math.max(1, Math.ceil(f.size / chunkSize));
         const resumeFrom = Math.min(resume.get(f.webkitRelativePath) || 0, totalChunks);
@@ -533,7 +538,7 @@ function buildUploadView() {
           r.pct.textContent = '100%';
           uploaded += f.size;
           doneCount += 1;
-          updateOverall();
+          updateOverall(true);
           continue;
         }
 
@@ -552,8 +557,9 @@ function buildUploadView() {
               r.pct.textContent = `${pct}%`;
               uploaded += bytes - r.prev;
               r.prev = bytes;
-              if (done === totalChunks) doneCount += 1;
-              updateOverall();
+              const isDone = done === totalChunks;
+              if (isDone) doneCount += 1;
+              updateOverall(isDone);
             },
           });
           r.bar.style.width = '100%';
@@ -571,7 +577,7 @@ function buildUploadView() {
     if (session?.cancelled) throw new DOMException('aborted', 'AbortError');
     overallBar.style.width = '100%';
     doneCount = fileList.length;
-    updateOverall();
+    updateOverall(true);
     await api.games.uploadComplete(game.id);
   }
 

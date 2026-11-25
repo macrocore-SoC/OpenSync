@@ -39,7 +39,7 @@ export async function uploadChunks({ url, path, file, chunkSize, resumeFrom = 0,
       if (res.status === 409) err.code = 'RESUME_REQUIRED';
       throw err;
     }
-    uploaded = start + file.slice(start, end).size;
+    uploaded = start + (end - start);
     onProgress?.(uploaded, i + 1, total);
   }
   return { path, uploadedBytes: uploaded };
