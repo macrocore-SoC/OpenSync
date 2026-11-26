@@ -228,12 +228,22 @@ impl FileSecretStore {
             std::fs::create_dir_all(parent)?;
         }
         let data = serde_json::to_string_pretty(map)?;
-        std::fs::write(&self.path, data)?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            // Create with 0600 from the start: a plain write + chmod leaves a brief window
+            // where stored session cookies are readable by other local users.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&self.path)?;
+            file.write_all(data.as_bytes())?;
         }
+        #[cfg(not(unix))]
+        std::fs::write(&self.path, data)?;
         Ok(())
     }
 }
@@ -900,12 +910,7 @@ impl LauncherDb {
         Ok(map)
     }
 
-    pub fn queue_pending_sync(
-        &self,
-        profile_id: &str,
-        game_id: i64,
-        reason: &str,
-    ) -> DbResult<()> {
+    pub fn queue_pending_sync(&self, profile_id: &str, game_id: i64, reason: &str) -> DbResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             r#"
@@ -1234,7 +1239,9 @@ mod tests {
 
         #[cfg(target_os = "macos")]
         assert!(
-            resolved.to_string_lossy().contains("Library/Application Support"),
+            resolved
+                .to_string_lossy()
+                .contains("Library/Application Support"),
             "macOS data dir must not use XDG paths: {resolved:?}"
         );
     }

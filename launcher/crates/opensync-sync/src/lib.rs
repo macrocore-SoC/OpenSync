@@ -21,7 +21,9 @@ pub enum SyncError {
     Api(#[from] ApiError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("mass deletion guard triggered: {deleted} of {total} files ({pct}%) missing; set force=true to proceed")]
+    #[error(
+        "mass deletion guard triggered: {deleted} of {total} files ({pct}%) missing; set force=true to proceed"
+    )]
     MassDeletionGuard {
         deleted: usize,
         total: usize,
@@ -390,11 +392,7 @@ pub fn inspect_unsynced_saves(
     }
 
     if let Some(manifest) = clean_manifest {
-        let cutoff = last_synced_at.map(|last_sync| {
-            last_sync
-                .checked_sub(std::time::Duration::from_secs(1))
-                .unwrap_or(last_sync)
-        });
+        let cutoff = last_synced_at;
         let clean_map: HashMap<&str, &opensync_api::ManifestEntry> = manifest
             .files
             .iter()

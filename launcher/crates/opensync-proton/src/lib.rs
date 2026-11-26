@@ -33,6 +33,8 @@ pub enum ProtonError {
     UnsafeArchivePath(String),
     #[error("proton download cancelled")]
     Cancelled,
+    #[error("application is already running: {0}; close it before launching through OpenSync")]
+    AppAlreadyRunning(String),
 }
 
 pub type ProtonResult<T> = Result<T, ProtonError>;
@@ -128,9 +130,7 @@ pub fn macos_app_inner_binary(app_path: &Path) -> Option<PathBuf> {
             .unwrap_or("")
             .to_lowercase();
         let name_match = if !bundle_name.is_empty()
-            && (stem == bundle_name
-                || stem.contains(&bundle_name)
-                || bundle_name.contains(&stem))
+            && (stem == bundle_name || stem.contains(&bundle_name) || bundle_name.contains(&stem))
         {
             0
         } else {
@@ -216,7 +216,10 @@ pub fn discover_executables(install_dir: &Path, game_name: &str) -> Vec<Discover
         };
         let rel_str = rel.to_string_lossy().replace('\\', "/");
         let lower_rel = rel_str.to_lowercase();
-        if IGNORED_EXE_SUBSTRINGS.iter().any(|bad| lower_rel.contains(bad)) {
+        if IGNORED_EXE_SUBSTRINGS
+            .iter()
+            .any(|bad| lower_rel.contains(bad))
+        {
             continue;
         }
 
@@ -433,7 +436,7 @@ pub fn detect_proton_in_roots(roots: &[(PathBuf, ProtonSource)]) -> Vec<ProtonIn
     found
 }
 
-/// Builds a native launch specification, marking the file executable on Unix.
+/// Builds a native launch specification, marking known executable files executable on Unix.
 fn native_command(
     exe: &DiscoveredExecutable,
     extra_args: &[String],
@@ -442,13 +445,15 @@ fn native_command(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = fs::metadata(&exe.abs_path) {
+        // Never mutate permissions of an unclassified file — it may be user data that only
+        // happens to be the last discovery candidate.
+        if exe.kind != BinaryKind::Unknown
+            && let Ok(meta) = fs::metadata(&exe.abs_path)
+        {
             let mode = meta.permissions().mode();
             if mode & 0o111 == 0 {
-                let _ = fs::set_permissions(
-                    &exe.abs_path,
-                    fs::Permissions::from_mode(mode | 0o755),
-                );
+                let _ =
+                    fs::set_permissions(&exe.abs_path, fs::Permissions::from_mode(mode | 0o755));
             }
         }
     }
@@ -461,6 +466,23 @@ fn native_command(
     }
 }
 
+/// Returns true when the bundle's inner executable is already running. `open -W` returns
+/// immediately for an already-running app, which would end the play session prematurely.
+#[cfg(target_os = "macos")]
+fn macos_app_is_running(app_path: &Path) -> bool {
+    let pattern = macos_app_inner_binary(app_path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| app_path.to_string_lossy().into_owned());
+    if pattern.trim().is_empty() {
+        return false;
+    }
+    std::process::Command::new("/usr/bin/pgrep")
+        .args(["-fl", &pattern])
+        .output()
+        .map(|out| out.status.success() && !out.stdout.is_empty())
+        .unwrap_or(false)
+}
+
 /// Launches a macOS `.app` bundle via Launch Services. `open -W` waits until the app quits,
 /// which keeps the runner's session clock and post-exit save sync in sync with the real game.
 #[cfg(target_os = "macos")]
@@ -469,9 +491,17 @@ fn macos_app_command(
     extra_args: &[String],
     working_dir: PathBuf,
 ) -> ProtonResult<LaunchCommandSpec> {
+    if macos_app_is_running(&exe.abs_path) {
+        return Err(ProtonError::AppAlreadyRunning(
+            exe.abs_path.to_string_lossy().into_owned(),
+        ));
+    }
     let open = PathBuf::from("/usr/bin/open");
     if open.is_file() {
-        let mut args = vec!["-W".to_string(), exe.abs_path.to_string_lossy().into_owned()];
+        let mut args = vec![
+            "-W".to_string(),
+            exe.abs_path.to_string_lossy().into_owned(),
+        ];
         if !extra_args.is_empty() {
             args.push("--args".to_string());
             args.extend(extra_args.iter().cloned());
@@ -562,14 +592,42 @@ fn macos_pe_command(
         });
     };
 
+    let label = format!("{runner_label} (macOS)");
     let mut args = vec![exe.abs_path.to_string_lossy().into_owned()];
     args.extend(extra_args.iter().cloned());
+
+    // Whisky/CrossOver are distributed as .app bundles; a directory cannot be executed directly.
+    if is_macos_app_bundle(&runner) {
+        if let Some(inner) = macos_app_inner_binary(&runner) {
+            return Ok(LaunchCommandSpec {
+                program: inner,
+                args,
+                env: Vec::new(),
+                working_dir,
+                runtime_label: label,
+            });
+        }
+        let mut open_args = vec![
+            "-a".to_string(),
+            runner.to_string_lossy().into_owned(),
+            "--args".to_string(),
+        ];
+        open_args.extend(args);
+        return Ok(LaunchCommandSpec {
+            program: PathBuf::from("/usr/bin/open"),
+            args: open_args,
+            env: Vec::new(),
+            working_dir,
+            runtime_label: label,
+        });
+    }
+
     Ok(LaunchCommandSpec {
         program: runner,
         args,
         env: Vec::new(),
         working_dir,
-        runtime_label: format!("{runner_label} (macOS)"),
+        runtime_label: label,
     })
 }
 
@@ -618,7 +676,10 @@ fn build_proton_pe_command(
         });
     }
 
-    let mut args = vec!["run".to_string(), exe.abs_path.to_string_lossy().to_string()];
+    let mut args = vec![
+        "run".to_string(),
+        exe.abs_path.to_string_lossy().to_string(),
+    ];
     args.extend(extra_args.iter().cloned());
     env.push(("STEAM_COMPAT_APP_ID".to_string(), "0".to_string()));
     Ok(LaunchCommandSpec {
@@ -1004,7 +1065,15 @@ where
     on_verifying();
 
     let expected_sha512 = match sha512_url {
-        Some(url) => Some(client.get(url).send().await?.error_for_status()?.text().await?),
+        Some(url) => Some(
+            client
+                .get(url)
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?,
+        ),
         None => None,
     };
 
@@ -1022,7 +1091,11 @@ where
         )
     })
     .await
-    .map_err(|e| ProtonError::Io(std::io::Error::other(format!("proton installer panicked: {e}"))))??;
+    .map_err(|e| {
+        ProtonError::Io(std::io::Error::other(format!(
+            "proton installer panicked: {e}"
+        )))
+    })??;
 
     Ok(installation)
 }
@@ -1074,7 +1147,11 @@ mod tests {
         let spawn = dir.path().join("flatpak-spawn");
         fs::write(&spawn, b"#!/bin/sh\n").expect("write fake flatpak-spawn");
         let old_path = std::env::var_os("PATH");
-        let new_path = format!("{}:{}", dir.path().display(), old_path.clone().unwrap_or_default().to_string_lossy());
+        let new_path = format!(
+            "{}:{}",
+            dir.path().display(),
+            old_path.clone().unwrap_or_default().to_string_lossy()
+        );
         unsafe {
             std::env::set_var("FLATPAK_ID", "io.opensync.launcher");
             std::env::set_var("PATH", &new_path);

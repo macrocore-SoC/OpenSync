@@ -563,7 +563,12 @@ impl LauncherCore {
             .lock()
             .unwrap()
             .insert((profile_id.to_string(), game_id));
-        if self.db.get_active_session(profile_id, game_id).ok().flatten().is_none()
+        if self
+            .db
+            .get_active_session(profile_id, game_id)
+            .ok()
+            .flatten()
+            .is_none()
             && let Ok(Some(inst)) = self.db.get_installed_game(profile_id, game_id)
         {
             let now = Utc::now();
@@ -1169,15 +1174,9 @@ impl LauncherCore {
             None => install_dir_for_slug(&games_dir, &profile.id, &detail.game.slug)?,
         };
 
-        let outcome = download_and_extract_game(
-            &client,
-            game_id,
-            &install_dir,
-            fresh,
-            verify_clean,
-            control,
-        )
-        .await?;
+        let outcome =
+            download_and_extract_game(&client, game_id, &install_dir, fresh, verify_clean, control)
+                .await?;
 
         let installed = self.record_installed_game(
             &profile.id,
@@ -1447,7 +1446,9 @@ impl LauncherCore {
             }
             let telemetry = Arc::new(Mutex::new(TelemetryState {
                 last_sample_at: started,
-                last_emit_at: started.checked_sub(Duration::from_secs(1)).unwrap_or(started),
+                last_emit_at: started
+                    .checked_sub(Duration::from_secs(1))
+                    .unwrap_or(started),
                 last_sample_bytes: 0,
             }));
 
@@ -1733,12 +1734,9 @@ impl LauncherCore {
             bytes_per_sec: 0.0,
             speed_samples: Vec::new(),
         };
-        let staging_root = folder.is_none().then(|| {
-            self.paths
-                .cache_dir
-                .join("uploads")
-                .join(&job_id)
-        });
+        let staging_root = folder
+            .is_none()
+            .then(|| self.paths.cache_dir.join("uploads").join(&job_id));
         if let Some(root) = &staging_root {
             std::fs::create_dir_all(root.join("files"))?;
         }
@@ -1783,7 +1781,9 @@ impl LauncherCore {
     ) -> CoreResult<bool> {
         let safe = safe_rel_path(rel_path)?;
         if total == 0 {
-            return Err(CoreError::Io(io::Error::other("total must be greater than zero")));
+            return Err(CoreError::Io(io::Error::other(
+                "total must be greater than zero",
+            )));
         }
         let (root, offsets, control) = {
             let map = self.uploads.read().unwrap();
@@ -1794,7 +1794,11 @@ impl LauncherCore {
                 .staging_root
                 .clone()
                 .ok_or_else(|| CoreError::UploadNotFound(job_id.to_string()))?;
-            (root, Arc::clone(&entry.staged_offsets), entry.control.clone())
+            (
+                root,
+                Arc::clone(&entry.staged_offsets),
+                entry.control.clone(),
+            )
         };
         let mut offsets = offsets.lock().unwrap();
         // The per-file byte count tracked in the entry is the source of truth: JS chunkers use
@@ -2023,8 +2027,8 @@ impl LauncherCore {
             }
 
             if let Some(cleanup_root) = cleanup_root {
-                let _ =
-                    tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&cleanup_root)).await;
+                let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&cleanup_root))
+                    .await;
             }
         });
     }
@@ -2049,10 +2053,7 @@ impl LauncherCore {
             }
             match client.get_game_status(game_id).await {
                 Ok(status) if status.status == "ready" => break,
-                Ok(status)
-                    if status.status.contains("fail")
-                        || status.status.contains("error") =>
-                {
+                Ok(status) if status.status.contains("fail") || status.status.contains("error") => {
                     return Err(CoreError::Api(ApiError::Http {
                         status: 500,
                         message: format!("game processing failed: {}", status.status),
@@ -2202,7 +2203,10 @@ impl LauncherCore {
             };
             if !matches!(
                 entry.snapshot.status,
-                UploadStatus::Queued | UploadStatus::Uploading | UploadStatus::Paused | UploadStatus::Indexing
+                UploadStatus::Queued
+                    | UploadStatus::Uploading
+                    | UploadStatus::Paused
+                    | UploadStatus::Indexing
             ) {
                 return false;
             }
@@ -2498,7 +2502,14 @@ impl LauncherCore {
             trigger: "manual".to_string(),
         });
 
-        match sync_game_saves(&client, game_id, &installed.install_dir, force_mass_deletion).await {
+        match sync_game_saves(
+            &client,
+            game_id,
+            &installed.install_dir,
+            force_mass_deletion,
+        )
+        .await
+        {
             Ok(report) => {
                 self.db
                     .update_game_synced_at(&profile.id, game_id, Utc::now())?;
@@ -2564,9 +2575,9 @@ impl LauncherCore {
                 if let Ok(report) =
                     sync_game_saves(&client, item.game_id, &installed.install_dir, false).await
                 {
-                    let _ =
-                        self.db
-                            .update_game_synced_at(&profile.id, item.game_id, Utc::now());
+                    let _ = self
+                        .db
+                        .update_game_synced_at(&profile.id, item.game_id, Utc::now());
                     let _ = self.db.clear_pending_sync(&profile.id, item.game_id);
                     let _ = self.record_activity(
                         &profile.id,
@@ -2617,7 +2628,10 @@ impl LauncherCore {
             .map(|p| p.game_id)
             .collect();
         let mut synced_games = 0usize;
-        let installed = self.db.list_installed_games(&profile.id).unwrap_or_default();
+        let installed = self
+            .db
+            .list_installed_games(&profile.id)
+            .unwrap_or_default();
         for game in installed {
             if self.is_shutting_down() {
                 break;
@@ -2662,7 +2676,10 @@ impl LauncherCore {
                 if let Ok(Ok(post_fp)) =
                     tokio::task::spawn_blocking(move || compute_dir_fingerprint(&dir_for_fp)).await
                 {
-                    self.sync_fingerprints.lock().unwrap().insert(fp_key, post_fp);
+                    self.sync_fingerprints
+                        .lock()
+                        .unwrap()
+                        .insert(fp_key, post_fp);
                 }
                 if report.uploaded_files > 0 || report.deleted_paths > 0 {
                     let _ = self.record_activity(
@@ -2908,7 +2925,10 @@ impl LauncherCore {
         let (client, connected) = {
             let guard = self.active.read().await;
             match guard.as_ref() {
-                Some(a) => (Some(a.client.clone()), a.state == ConnectionState::Connected),
+                Some(a) => (
+                    Some(a.client.clone()),
+                    a.state == ConnectionState::Connected,
+                ),
                 None => (None, false),
             }
         };
@@ -2918,8 +2938,7 @@ impl LauncherCore {
             return Ok(Vec::new());
         }
 
-        let live_in_memory: HashSet<(String, i64)> =
-            self.playing_games.lock().unwrap().clone();
+        let live_in_memory: HashSet<(String, i64)> = self.playing_games.lock().unwrap().clone();
 
         let mut out = Vec::new();
         for rec in active_rows {
@@ -3093,8 +3112,13 @@ impl LauncherCore {
             trigger: "recovery".to_string(),
         });
 
-        let report =
-            sync_game_saves(&client, game_id, &installed.install_dir, force_mass_deletion).await?;
+        let report = sync_game_saves(
+            &client,
+            game_id,
+            &installed.install_dir,
+            force_mass_deletion,
+        )
+        .await?;
         self.db
             .update_game_synced_at(&profile.id, game_id, Utc::now())?;
         self.db.clear_pending_sync(&profile.id, game_id)?;
@@ -3171,7 +3195,9 @@ impl LauncherCore {
             .filter(|e| {
                 matches!(
                     e.snapshot.status,
-                    DownloadStatus::Queued | DownloadStatus::Downloading | DownloadStatus::Verifying
+                    DownloadStatus::Queued
+                        | DownloadStatus::Downloading
+                        | DownloadStatus::Verifying
                 )
             })
             .count();
@@ -3271,10 +3297,11 @@ impl LauncherCore {
         let now = Utc::now();
         for (pid, gid) in &live_pairs {
             if let Ok(Some(rec)) = self.db.get_active_session(pid, *gid) {
-                let elapsed = (now - rec.started_at).num_seconds().max(0) as u64;
+                // Use the suspend-aware heartbeat value only. Raw wall-clock elapsed time
+                // would count time the machine spent asleep as playtime.
                 let _ = self
                     .db
-                    .heartbeat_active_session(pid, *gid, now, rec.active_secs.max(elapsed));
+                    .heartbeat_active_session(pid, *gid, now, rec.active_secs);
             }
         }
 
@@ -3620,7 +3647,10 @@ fn ext_for_mime(content_type: &str) -> &'static str {
 
 fn format_sync_report_detail(report: &SyncReport) -> String {
     if report.uploaded_files == 0 && report.deleted_paths == 0 {
-        return format!("Saves up to date ({} files verified)", report.skipped_unchanged);
+        return format!(
+            "Saves up to date ({} files verified)",
+            report.skipped_unchanged
+        );
     }
     let mut parts = Vec::new();
     if report.uploaded_files > 0 {
@@ -3743,7 +3773,9 @@ mod path_safety_tests {
 
         // Non-existent traversal tail under the profile dir must be rejected.
         let non_existent_escape = profile_dir.join("foo/../../escaped-new");
-        assert!(assert_install_dir_contained(&games_dir, "profile-1", &non_existent_escape).is_err());
+        assert!(
+            assert_install_dir_contained(&games_dir, "profile-1", &non_existent_escape).is_err()
+        );
 
         // Valid non-existent remembered dir (after uninstall/delete) is accepted.
         let nonexistent_valid = profile_dir.join("celeste");
