@@ -9,6 +9,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::io::AsyncReadExt;
 use tokio::sync::{Semaphore, mpsc};
 
 const HASH_BUF_SIZE: usize = 1024 * 1024;
@@ -362,28 +363,51 @@ pub async fn sync_game_saves_with_fingerprint(
         let item = &diff.uploads[0];
         let resume_from = *resume_map.get(&item.rel_path).unwrap_or(&0);
         if resume_from == 0 && item.size <= chunk_size as u64 {
-            let chunk_bytes = if item.size == 0 {
-                Bytes::new()
+            // Read at most one chunk plus one sentinel byte. If the file grew between the
+            // scan and the read, fall back to the bounded chunked path instead of pulling
+            // an arbitrarily large file into memory.
+            let mut bounded: Option<Bytes> = None;
+            if item.size == 0 {
+                bounded = Some(Bytes::new());
             } else {
-                Bytes::from(tokio::fs::read(&item.abs_path).await?)
-            };
-            match client
-                .upload_overlay_chunk(
-                    game_id,
-                    &item.rel_path,
-                    0,
-                    1,
-                    item.size,
-                    &item.sha256,
-                    chunk_bytes,
-                )
-                .await
-            {
-                Ok(()) => {}
-                Err(ApiError::ResumeRequired { received }) => {
-                    upload_file_chunked(client, game_id, item, chunk_size, received).await?;
+                let mut file = tokio::fs::File::open(&item.abs_path).await?;
+                let mut buf = vec![0u8; chunk_size + 1];
+                let mut read = 0usize;
+                while read < buf.len() {
+                    let n = file.read(&mut buf[read..]).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    read += n;
                 }
-                Err(e) => return Err(e.into()),
+                if read <= chunk_size {
+                    buf.truncate(read);
+                    bounded = Some(Bytes::from(buf));
+                }
+            }
+            match bounded {
+                Some(chunk_bytes) => {
+                    match client
+                        .upload_overlay_chunk(
+                            game_id,
+                            &item.rel_path,
+                            0,
+                            1,
+                            item.size,
+                            &item.sha256,
+                            chunk_bytes,
+                        )
+                        .await
+                    {
+                        Ok(()) => {}
+                        Err(ApiError::ResumeRequired { received }) => {
+                            upload_file_chunked(client, game_id, item, chunk_size, received)
+                                .await?;
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                None => upload_file_chunked(client, game_id, item, chunk_size, 0).await?,
             }
         } else {
             upload_file_chunked(client, game_id, item, chunk_size, resume_from).await?;

@@ -2523,8 +2523,13 @@ impl LauncherCore {
             }
             if let Some(installed) = self.db.get_installed_game(&profile.id, item.game_id)? {
                 let _sync_guard = self.begin_sync_activity();
-                if let Ok((report, post_fp)) =
-                    sync_game_saves_with_fingerprint(&client, item.game_id, &installed.install_dir, false).await
+                if let Ok((report, post_fp)) = sync_game_saves_with_fingerprint(
+                    &client,
+                    item.game_id,
+                    &installed.install_dir,
+                    false,
+                )
+                .await
                 {
                     let _ = self
                         .db
@@ -2589,7 +2594,10 @@ impl LauncherCore {
                 .map(|p| p.game_id)
                 .collect()
         };
-        let installed = self.db.list_installed_games(&profile.id).unwrap_or_default();
+        let installed = self
+            .db
+            .list_installed_games(&profile.id)
+            .unwrap_or_default();
         let uninstalling_snapshot: HashSet<(String, i64)> = self
             .uninstalling_games
             .lock()
@@ -2603,7 +2611,6 @@ impl LauncherCore {
             })
             .collect();
 
-
         let synced_counts: Vec<usize> = stream::iter(targets)
             .map(|game| {
                 let client = client.clone();
@@ -2612,6 +2619,17 @@ impl LauncherCore {
                     || pending_after_flush.contains(&game.game_id);
                 async move {
                     if self.is_shutting_down() {
+                        return 0;
+                    }
+                    // Targets were filtered before buffering; a game may have started or begun
+                    // uninstalling while queued. Re-check before touching its save folder.
+                    if self.is_game_playing(&profile_id, game.game_id)
+                        || self
+                            .uninstalling_games
+                            .lock()
+                            .map(|g| g.contains(&(profile_id.clone(), game.game_id)))
+                            .unwrap_or(false)
+                    {
                         return 0;
                     }
                     let fp_key = (profile_id.clone(), game.game_id);
@@ -2640,9 +2658,9 @@ impl LauncherCore {
                     )
                     .await
                     {
-                        let _ = self
-                            .db
-                            .update_game_synced_at(&profile_id, game.game_id, Utc::now());
+                        let _ =
+                            self.db
+                                .update_game_synced_at(&profile_id, game.game_id, Utc::now());
                         let _ = self.db.clear_pending_sync(&profile_id, game.game_id);
                         self.sync_fingerprints
                             .lock()
@@ -2663,7 +2681,6 @@ impl LauncherCore {
                     } else {
                         0
                     }
-
                 }
             })
             .buffer_unordered(6)
