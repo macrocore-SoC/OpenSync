@@ -1030,7 +1030,7 @@ fn collect_upload_files(
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
             out.push((rel, size));
         }
     }

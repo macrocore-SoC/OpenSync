@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use futures_util::stream::{self, StreamExt};
 use launcher_db::{
     ActiveSessionRecord, ActivityLogEntry, DbError, InstalledGame, LauncherDb, PendingSync,
     PlaytimeSummary, Profile, SecretStore,
@@ -11,7 +12,10 @@ use opensync_proton::{
 use opensync_runner::{
     LaunchOptions, PostExitSyncStatus, RunnerError, SessionOutcome, launch_and_track_with_hook,
 };
-use opensync_sync::{SyncError, SyncReport, inspect_unsynced_saves, sync_game_saves};
+use opensync_sync::{
+    DirFingerprint, SyncError, SyncReport, compute_dir_fingerprint, inspect_unsynced_saves,
+    sync_game_saves, sync_game_saves_with_fingerprint,
+};
 use opensync_transfer::{
     DownloadControl, DownloadOutcome, SpeedSample, TransferError, UploadControl, UploadOutcome,
     download_and_extract_game, manifest_fingerprint, safe_rel_path, upload_folder,
@@ -381,52 +385,6 @@ impl Drop for SyncActivityGuard {
             self.notify.notify_waiters();
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct DirFingerprint {
-    file_count: usize,
-    total_bytes: u64,
-    max_mtime_nanos: u128,
-}
-
-fn compute_dir_fingerprint(root: &Path) -> io::Result<DirFingerprint> {
-    if !root.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("directory does not exist: {}", root.display()),
-        ));
-    }
-    let mut fp = DirFingerprint::default();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let ft = entry.file_type()?;
-            if ft.is_symlink() {
-                continue;
-            }
-            if ft.is_dir() {
-                stack.push(entry.path());
-                continue;
-            }
-            if !ft.is_file() {
-                continue;
-            }
-            if entry.file_name().to_string_lossy().ends_with(".part") {
-                continue;
-            }
-            let meta = entry.metadata()?;
-            fp.file_count += 1;
-            fp.total_bytes = fp.total_bytes.saturating_add(meta.len());
-            if let Ok(mtime) = meta.modified()
-                && let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH)
-            {
-                fp.max_mtime_nanos = fp.max_mtime_nanos.max(dur.as_nanos());
-            }
-        }
-    }
-    Ok(fp)
 }
 
 pub struct LauncherCore {
@@ -1118,9 +1076,7 @@ impl LauncherCore {
         let base = format!("{}_{}", profile.id, game_id);
         let mime_path = covers_dir.join(format!("{base}.mime"));
 
-        if mime_path.is_file()
-            && let Ok(ct_raw) = std::fs::read_to_string(&mime_path)
-        {
+        if let Ok(ct_raw) = std::fs::read_to_string(&mime_path) {
             let ct = ct_raw.trim().to_ascii_lowercase();
             let data_path = covers_dir.join(format!("{base}.{}", ext_for_mime(&ct)));
             if let Ok(bytes) = std::fs::read(&data_path)
@@ -2502,7 +2458,7 @@ impl LauncherCore {
             trigger: "manual".to_string(),
         });
 
-        match sync_game_saves(
+        match sync_game_saves_with_fingerprint(
             &client,
             game_id,
             &installed.install_dir,
@@ -2510,19 +2466,14 @@ impl LauncherCore {
         )
         .await
         {
-            Ok(report) => {
+            Ok((report, post_fp)) => {
                 self.db
                     .update_game_synced_at(&profile.id, game_id, Utc::now())?;
                 self.db.clear_pending_sync(&profile.id, game_id)?;
-                let dir_for_fp = installed.install_dir.clone();
-                if let Ok(Ok(post_fp)) =
-                    tokio::task::spawn_blocking(move || compute_dir_fingerprint(&dir_for_fp)).await
-                {
-                    self.sync_fingerprints
-                        .lock()
-                        .unwrap()
-                        .insert((profile.id.clone(), game_id), post_fp);
-                }
+                self.sync_fingerprints
+                    .lock()
+                    .unwrap()
+                    .insert((profile.id.clone(), game_id), post_fp);
                 let detail = format_sync_report_detail(&report);
                 let _ = self.record_activity(
                     &profile.id,
@@ -2572,13 +2523,17 @@ impl LauncherCore {
             }
             if let Some(installed) = self.db.get_installed_game(&profile.id, item.game_id)? {
                 let _sync_guard = self.begin_sync_activity();
-                if let Ok(report) =
-                    sync_game_saves(&client, item.game_id, &installed.install_dir, false).await
+                if let Ok((report, post_fp)) =
+                    sync_game_saves_with_fingerprint(&client, item.game_id, &installed.install_dir, false).await
                 {
                     let _ = self
                         .db
                         .update_game_synced_at(&profile.id, item.game_id, Utc::now());
                     let _ = self.db.clear_pending_sync(&profile.id, item.game_id);
+                    self.sync_fingerprints
+                        .lock()
+                        .unwrap()
+                        .insert((profile.id.clone(), item.game_id), post_fp);
                     let _ = self.record_activity(
                         &profile.id,
                         Some(item.game_id),
@@ -2618,83 +2573,103 @@ impl LauncherCore {
             return Ok(BackgroundSyncOutcome::default());
         }
 
-        let flushed_pending = self.flush_pending_syncs().await.unwrap_or(0);
+        let flushed_pending = if pending.is_empty() {
+            0
+        } else {
+            self.flush_pending_syncs().await.unwrap_or(0)
+        };
         let pending_before_flush: HashSet<i64> = pending.into_iter().map(|p| p.game_id).collect();
-        let pending_after_flush: HashSet<i64> = self
-            .db
-            .list_pending_syncs(&profile.id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.game_id)
-            .collect();
-        let mut synced_games = 0usize;
-        let installed = self
-            .db
-            .list_installed_games(&profile.id)
+        let pending_after_flush: HashSet<i64> = if pending_before_flush.is_empty() {
+            HashSet::new()
+        } else {
+            self.db
+                .list_pending_syncs(&profile.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| p.game_id)
+                .collect()
+        };
+        let installed = self.db.list_installed_games(&profile.id).unwrap_or_default();
+        let uninstalling_snapshot: HashSet<(String, i64)> = self
+            .uninstalling_games
+            .lock()
+            .map(|g| g.clone())
             .unwrap_or_default();
-        for game in installed {
-            if self.is_shutting_down() {
-                break;
-            }
-            if self.is_game_playing(&profile.id, game.game_id)
-                || self
-                    .uninstalling_games
-                    .lock()
-                    .map(|g| g.contains(&(profile.id.clone(), game.game_id)))
-                    .unwrap_or(false)
-            {
-                continue;
-            }
+        let targets: Vec<_> = installed
+            .into_iter()
+            .filter(|game| {
+                !self.is_game_playing(&profile.id, game.game_id)
+                    && !uninstalling_snapshot.contains(&(profile.id.clone(), game.game_id))
+            })
+            .collect();
 
-            let is_pending = pending_before_flush.contains(&game.game_id)
-                || pending_after_flush.contains(&game.game_id);
-            let fp_key = (profile.id.clone(), game.game_id);
-            if !is_pending {
-                let dir_for_fp = game.install_dir.clone();
-                let pre_fp =
-                    tokio::task::spawn_blocking(move || compute_dir_fingerprint(&dir_for_fp))
-                        .await
-                        .ok()
-                        .and_then(Result::ok);
-                if let Some(fp) = pre_fp {
-                    let cached = self.sync_fingerprints.lock().unwrap().get(&fp_key).copied();
-                    if cached == Some(fp) {
-                        continue;
+
+        let synced_counts: Vec<usize> = stream::iter(targets)
+            .map(|game| {
+                let client = client.clone();
+                let profile_id = profile.id.clone();
+                let is_pending = pending_before_flush.contains(&game.game_id)
+                    || pending_after_flush.contains(&game.game_id);
+                async move {
+                    if self.is_shutting_down() {
+                        return 0;
                     }
-                }
-            }
+                    let fp_key = (profile_id.clone(), game.game_id);
+                    if !is_pending {
+                        let cached = self.sync_fingerprints.lock().unwrap().get(&fp_key).copied();
+                        if let Some(cached_fp) = cached {
+                            let dir_for_fp = game.install_dir.clone();
+                            let pre_fp = tokio::task::spawn_blocking(move || {
+                                compute_dir_fingerprint(&dir_for_fp)
+                            })
+                            .await
+                            .ok()
+                            .and_then(Result::ok);
+                            if pre_fp == Some(cached_fp) {
+                                return 0;
+                            }
+                        }
+                    }
 
-            let _sync_guard = self.begin_sync_activity();
-            if let Ok(report) =
-                sync_game_saves(&client, game.game_id, &game.install_dir, false).await
-            {
-                let _ = self
-                    .db
-                    .update_game_synced_at(&profile.id, game.game_id, Utc::now());
-                let _ = self.db.clear_pending_sync(&profile.id, game.game_id);
-                let dir_for_fp = game.install_dir.clone();
-                if let Ok(Ok(post_fp)) =
-                    tokio::task::spawn_blocking(move || compute_dir_fingerprint(&dir_for_fp)).await
-                {
-                    self.sync_fingerprints
-                        .lock()
-                        .unwrap()
-                        .insert(fp_key, post_fp);
+                    let _sync_guard = self.begin_sync_activity();
+                    if let Ok((report, post_fp)) = sync_game_saves_with_fingerprint(
+                        &client,
+                        game.game_id,
+                        &game.install_dir,
+                        false,
+                    )
+                    .await
+                    {
+                        let _ = self
+                            .db
+                            .update_game_synced_at(&profile_id, game.game_id, Utc::now());
+                        let _ = self.db.clear_pending_sync(&profile_id, game.game_id);
+                        self.sync_fingerprints
+                            .lock()
+                            .unwrap()
+                            .insert(fp_key, post_fp);
+                        if report.uploaded_files > 0 || report.deleted_paths > 0 {
+                            let _ = self.record_activity(
+                                &profile_id,
+                                Some(game.game_id),
+                                Some(&game.name),
+                                "sync_complete",
+                                "accent",
+                                &format!("Background auto-synced {}", game.name),
+                                &format_sync_report_detail(&report),
+                            );
+                        }
+                        1
+                    } else {
+                        0
+                    }
+
                 }
-                if report.uploaded_files > 0 || report.deleted_paths > 0 {
-                    let _ = self.record_activity(
-                        &profile.id,
-                        Some(game.game_id),
-                        Some(&game.name),
-                        "sync_complete",
-                        "accent",
-                        &format!("Background auto-synced {}", game.name),
-                        &format_sync_report_detail(&report),
-                    );
-                }
-                synced_games += 1;
-            }
-        }
+            })
+            .buffer_unordered(6)
+            .collect()
+            .await;
+        let synced_games: usize = synced_counts.into_iter().sum();
 
         let outcome = BackgroundSyncOutcome {
             synced_games,
