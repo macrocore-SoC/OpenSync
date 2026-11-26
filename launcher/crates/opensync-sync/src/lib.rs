@@ -535,7 +535,14 @@ pub fn inspect_unsynced_saves(
     }
 
     if let Some(manifest) = clean_manifest {
-        let cutoff = last_synced_at;
+        // Filesystems with coarse mtime granularity (FAT32 ~2s, HFS+/SMB/NFS ~1s) can write
+        // a save just after the last sync with an mtime slightly *before* the recorded UTC
+        // timestamp. Keep a 1s grace window so crash recovery does not silently miss it.
+        let cutoff = last_synced_at.map(|last_sync| {
+            last_sync
+                .checked_sub(std::time::Duration::from_secs(1))
+                .unwrap_or(last_sync)
+        });
         let clean_map: HashMap<&str, &opensync_api::ManifestEntry> = manifest
             .files
             .iter()

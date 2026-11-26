@@ -231,15 +231,16 @@ impl FileSecretStore {
         #[cfg(unix)]
         {
             use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
-            // Create with 0600 from the start: a plain write + chmod leaves a brief window
-            // where stored session cookies are readable by other local users.
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            // Create with 0600 from the start (no TOCTOU window), then fchmod the open handle
+            // so a pre-existing secrets.json with loose permissions is fixed too.
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
                 .mode(0o600)
                 .open(&self.path)?;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             file.write_all(data.as_bytes())?;
         }
         #[cfg(not(unix))]
@@ -342,8 +343,7 @@ impl LauncherDb {
             PRAGMA foreign_keys = ON;
             "#,
         )?;
-        let schema_version: i64 =
-            conn.query_row("PRAGMA user_version;", [], |r| r.get(0))?;
+        let schema_version: i64 = conn.query_row("PRAGMA user_version;", [], |r| r.get(0))?;
         if schema_version < 1 {
             conn.execute_batch(
                 r#"
@@ -745,10 +745,8 @@ impl LauncherDb {
 
     pub fn remove_installed_game(&self, profile_id: &str, game_id: i64) -> DbResult<()> {
         let conn = self.conn.lock();
-        conn.prepare_cached(
-            "DELETE FROM installed_games WHERE profile_id = ?1 AND game_id = ?2",
-        )?
-        .execute(params![profile_id, game_id])?;
+        conn.prepare_cached("DELETE FROM installed_games WHERE profile_id = ?1 AND game_id = ?2")?
+            .execute(params![profile_id, game_id])?;
         Ok(())
     }
 
@@ -922,12 +920,7 @@ impl LauncherDb {
         Ok(map)
     }
 
-    pub fn queue_pending_sync(
-        &self,
-        profile_id: &str,
-        game_id: i64,
-        reason: &str,
-    ) -> DbResult<()> {
+    pub fn queue_pending_sync(&self, profile_id: &str, game_id: i64, reason: &str) -> DbResult<()> {
         let conn = self.conn.lock();
         conn.prepare_cached(
             r#"
@@ -938,7 +931,12 @@ impl LauncherDb {
                 reason = excluded.reason
             "#,
         )?
-        .execute(params![profile_id, game_id, Utc::now().to_rfc3339(), reason])?;
+        .execute(params![
+            profile_id,
+            game_id,
+            Utc::now().to_rfc3339(),
+            reason
+        ])?;
         Ok(())
     }
 
@@ -966,10 +964,8 @@ impl LauncherDb {
 
     pub fn clear_pending_sync(&self, profile_id: &str, game_id: i64) -> DbResult<()> {
         let conn = self.conn.lock();
-        conn.prepare_cached(
-            "DELETE FROM pending_syncs WHERE profile_id = ?1 AND game_id = ?2",
-        )?
-        .execute(params![profile_id, game_id])?;
+        conn.prepare_cached("DELETE FROM pending_syncs WHERE profile_id = ?1 AND game_id = ?2")?
+            .execute(params![profile_id, game_id])?;
         Ok(())
     }
 
@@ -1066,10 +1062,8 @@ impl LauncherDb {
 
     pub fn clear_active_session(&self, profile_id: &str, game_id: i64) -> DbResult<()> {
         let conn = self.conn.lock();
-        conn.prepare_cached(
-            "DELETE FROM active_sessions WHERE profile_id = ?1 AND game_id = ?2",
-        )?
-        .execute(params![profile_id, game_id])?;
+        conn.prepare_cached("DELETE FROM active_sessions WHERE profile_id = ?1 AND game_id = ?2")?
+            .execute(params![profile_id, game_id])?;
         Ok(())
     }
 

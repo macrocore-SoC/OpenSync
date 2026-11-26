@@ -9,7 +9,7 @@ use launcher_db::{ActivityLogEntry, InstalledGame, PendingSync, PlaytimeSummary,
 use opensync_api::{ApiError, Game, User, safe_image_mime};
 use opensync_proton::{
     BinaryKind, DiscoveredExecutable, GeProtonRelease, ProtonInstallation, detect_binary_kind,
-    discover_executables,
+    discover_executables, is_macos_app_bundle,
 };
 use opensync_runner::LaunchOptions;
 use opensync_sync::SyncReport;
@@ -478,8 +478,8 @@ fn scan_one_game_executables(
     let selected_kind = exe_override
         .and_then(|rel| {
             let abs = dir.join(rel);
-            // `.app` bundles are directories but are valid launch targets on macOS.
-            if abs.exists() {
+            // Match resolve_launch_command: regular files and macOS `.app` bundles are valid.
+            if abs.is_file() || is_macos_app_bundle(&abs) {
                 Some(detect_binary_kind(&abs))
             } else {
                 None

@@ -133,13 +133,26 @@ impl SessionClock {
         // keeps advancing. The gap is therefore excluded from active screen time on both
         // platforms. Even if monotonic kept ticking (e.g. CLOCK_BOOTTIME / VM pause), cap
         // huge single gaps beyond suspend_threshold.
-        // `mono_delta` already excludes suspend time on Linux/macOS. If wall time jumped
-        // far beyond it, keep only the monotonic portion instead of dropping the whole
-        // heartbeat; if wall time moved backwards, trust the smaller wall delta.
+        // On Unix (Linux CLOCK_MONOTONIC, macOS mach_absolute_time) the monotonic clock pauses
+        // during sleep, so `mono_delta` already excludes suspend time. Keep only that portion
+        // when wall time jumped ahead, and trust the smaller delta if the wall clock went back.
+        #[cfg(unix)]
         let active = if wall_delta > mono_delta.saturating_add(self.suspend_threshold) {
             mono_delta
         } else {
             mono_delta.min(wall_delta)
+        };
+
+        // On Windows (and other non-Unix targets) `Instant` keeps ticking through sleep, so a
+        // long delta is indistinguishable from real playtime. Stay conservative and cap each
+        // heartbeat at the suspend threshold rather than counting a whole sleep interval.
+        #[cfg(not(unix))]
+        let active = if mono_delta <= self.suspend_threshold
+            && wall_delta <= mono_delta.saturating_add(self.suspend_threshold)
+        {
+            mono_delta
+        } else {
+            Duration::ZERO
         };
         self.active_duration += active;
 

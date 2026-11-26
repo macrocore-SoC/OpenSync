@@ -346,10 +346,10 @@ pub fn discover_executables(install_dir: &Path, game_name: &str) -> Vec<Discover
             if ft.is_dir() {
                 // Skip macOS frameworks and never descend inside `.app` bundles.
                 if (name.len() >= 10
-                    && name[name.len() - 10..].eq_ignore_ascii_case(".framework"))
+                    && name.as_bytes()[name.len() - 10..].eq_ignore_ascii_case(b".framework"))
                     || (name.eq_ignore_ascii_case("contents")
                         && prefix.len() >= 4
-                        && prefix[prefix.len() - 4..].eq_ignore_ascii_case(".app"))
+                        && prefix.as_bytes()[prefix.len() - 4..].eq_ignore_ascii_case(b".app"))
                 {
                     continue;
                 }
@@ -360,7 +360,7 @@ pub fn discover_executables(install_dir: &Path, game_name: &str) -> Vec<Discover
                     format!("{prefix}/{name}")
                 };
                 if name.len() >= 4
-                    && name[name.len() - 4..].eq_ignore_ascii_case(".app")
+                    && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".app")
                     && abs.join("Contents/MacOS").is_dir()
                 {
                     let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
@@ -631,8 +631,20 @@ fn macos_app_is_running(app_path: &Path) -> bool {
     if pattern.trim().is_empty() {
         return false;
     }
+    // `pgrep -f` matches an extended regular expression; escape path characters such as
+    // `(2024)`, `C++` and `[Deluxe]` so they are matched literally. `--` ends option parsing.
+    let mut regex = String::with_capacity(pattern.len());
+    for ch in pattern.chars() {
+        if matches!(
+            ch,
+            '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+        ) {
+            regex.push('\\');
+        }
+        regex.push(ch);
+    }
     std::process::Command::new("/usr/bin/pgrep")
-        .args(["-fl", &pattern])
+        .args(["-fl", "--", &regex])
         .output()
         .map(|out| out.status.success() && !out.stdout.is_empty())
         .unwrap_or(false)
@@ -763,6 +775,7 @@ fn macos_pe_command(
             });
         }
         let mut open_args = vec![
+            "-W".to_string(),
             "-a".to_string(),
             runner.to_string_lossy().into_owned(),
             "--args".to_string(),
