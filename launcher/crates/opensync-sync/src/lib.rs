@@ -14,6 +14,8 @@ use tokio::sync::{Semaphore, mpsc};
 
 const HASH_BUF_SIZE: usize = 1024 * 1024;
 const UPLOAD_CONCURRENCY: usize = 6;
+/// Upper bound for the single-chunk fast path; larger files always use bounded chunked reads.
+const MAX_FAST_PATH_BYTES: u64 = 16 * 1024 * 1024;
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -362,7 +364,7 @@ pub async fn sync_game_saves_with_fingerprint(
     if diff.uploads.len() == 1 {
         let item = &diff.uploads[0];
         let resume_from = *resume_map.get(&item.rel_path).unwrap_or(&0);
-        if resume_from == 0 && item.size <= chunk_size as u64 {
+        if resume_from == 0 && item.size <= chunk_size as u64 && item.size <= MAX_FAST_PATH_BYTES {
             // Read at most one chunk plus one sentinel byte. If the file grew between the
             // scan and the read, fall back to the bounded chunked path instead of pulling
             // an arbitrarily large file into memory.
@@ -371,7 +373,7 @@ pub async fn sync_game_saves_with_fingerprint(
                 bounded = Some(Bytes::new());
             } else {
                 let mut file = tokio::fs::File::open(&item.abs_path).await?;
-                let mut buf = vec![0u8; chunk_size + 1];
+                let mut buf = vec![0u8; (item.size as usize).saturating_add(1)];
                 let mut read = 0usize;
                 while read < buf.len() {
                     let n = file.read(&mut buf[read..]).await?;
@@ -380,7 +382,7 @@ pub async fn sync_game_saves_with_fingerprint(
                     }
                     read += n;
                 }
-                if read <= chunk_size {
+                if read <= item.size as usize {
                     buf.truncate(read);
                     bounded = Some(Bytes::from(buf));
                 }

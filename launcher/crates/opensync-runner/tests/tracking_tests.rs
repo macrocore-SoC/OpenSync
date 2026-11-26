@@ -29,10 +29,18 @@ fn tracking_session_clock_excludes_system_suspend_sleep_jumps() {
         start + ChronoDuration::seconds(15 + 7200),
         Duration::from_secs(16),
     );
-    // Only the 1s of real activity before sleep is counted; the 7200s gap is excluded.
+    // Unix monotonic clocks stop during sleep, so the 1s before sleep is counted.
+    #[cfg(unix)]
     assert_eq!(
         clock.active_secs(),
         16,
+        "2-hour suspend gap must NOT be counted as screen time"
+    );
+    // Windows `Instant` keeps ticking through sleep; the conservative cap drops the tick.
+    #[cfg(not(unix))]
+    assert_eq!(
+        clock.active_secs(),
+        15,
         "2-hour suspend gap must NOT be counted as screen time"
     );
 
@@ -45,7 +53,10 @@ fn tracking_session_clock_excludes_system_suspend_sleep_jumps() {
         start + ChronoDuration::seconds(15 + 7200 + 10),
         Duration::from_secs(26),
     );
+    #[cfg(unix)]
     assert_eq!(clock.active_secs(), 26);
+    #[cfg(not(unix))]
+    assert_eq!(clock.active_secs(), 25);
 }
 
 #[tokio::test]

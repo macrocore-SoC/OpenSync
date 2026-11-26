@@ -32,8 +32,6 @@ pub enum ProtonError {
     UnsafeArchivePath(String),
     #[error("proton download cancelled")]
     Cancelled,
-    #[error("application is already running: {0}; close it before launching through OpenSync")]
-    AppAlreadyRunning(String),
 }
 
 pub type ProtonResult<T> = Result<T, ProtonError>;
@@ -621,35 +619,6 @@ fn native_command(
     }
 }
 
-/// Returns true when the bundle's inner executable is already running. `open -W` returns
-/// immediately for an already-running app, which would end the play session prematurely.
-#[cfg(target_os = "macos")]
-fn macos_app_is_running(app_path: &Path) -> bool {
-    let pattern = macos_app_inner_binary(app_path)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| app_path.to_string_lossy().into_owned());
-    if pattern.trim().is_empty() {
-        return false;
-    }
-    // `pgrep -f` matches an extended regular expression; escape path characters such as
-    // `(2024)`, `C++` and `[Deluxe]` so they are matched literally. `--` ends option parsing.
-    let mut regex = String::with_capacity(pattern.len());
-    for ch in pattern.chars() {
-        if matches!(
-            ch,
-            '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
-        ) {
-            regex.push('\\');
-        }
-        regex.push(ch);
-    }
-    std::process::Command::new("/usr/bin/pgrep")
-        .args(["-fl", "--", &regex])
-        .output()
-        .map(|out| out.status.success() && !out.stdout.is_empty())
-        .unwrap_or(false)
-}
-
 /// Launches a macOS `.app` bundle via Launch Services. `open -W` waits until the app quits,
 /// which keeps the runner's session clock and post-exit save sync in sync with the real game.
 #[cfg(target_os = "macos")]
@@ -658,11 +627,6 @@ fn macos_app_command(
     extra_args: &[String],
     working_dir: PathBuf,
 ) -> ProtonResult<LaunchCommandSpec> {
-    if macos_app_is_running(&exe.abs_path) {
-        return Err(ProtonError::AppAlreadyRunning(
-            exe.abs_path.to_string_lossy().into_owned(),
-        ));
-    }
     let open = PathBuf::from("/usr/bin/open");
     if open.is_file() {
         let mut args = vec![
@@ -1364,5 +1328,21 @@ mod tests {
         assert_eq!(spec.program, path);
         assert_eq!(spec.args, ["--fullscreen".to_string()]);
         assert_eq!(spec.runtime_label, "native");
+    }
+
+    #[test]
+    fn discovery_handles_multibyte_utf8_directory_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Names whose byte offsets would land mid-codepoint if sliced by raw byte count.
+        for name in ["Pokémon.framework", "Über.app", "ゲーム.app", "C++/redist"] {
+            let path = dir.path().join(name);
+            if name.contains('/') {
+                std::fs::create_dir_all(&path).expect("create nested dir");
+            } else {
+                std::fs::create_dir(&path).expect("create dir");
+            }
+        }
+        // Must not panic on any of the above.
+        let _ = discover_executables(dir.path(), "Über");
     }
 }
